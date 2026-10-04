@@ -4,24 +4,29 @@ import { useAuth, UserButton } from "@clerk/nextjs";
 import { createClerkSupabaseClient } from "../utils/supabase";
 
 export default function Dashboard() {
-  // ADDED: userId extracted from Clerk
   const { getToken, isLoaded, isSignedIn, userId } = useAuth(); 
+  
+  // Database State
   const [pupils, setPupils] = useState([]);
   const [dbStatus, setDbStatus] = useState("Connecting to secure database...");
   
+  // Form State
   const [firstName, setFirstName] = useState("");
   const [lastInitial, setLastInitial] = useState("");
   const [isSend, setIsSend] = useState(false);
   const [isEal, setIsEal] = useState(false);
   const [isPp, setIsPp] = useState(false);
-  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
 
+  // BYOK (Bring Your Own Key) State
+  const [geminiKey, setGeminiKey] = useState("");
+  const [isKeySaved, setIsKeySaved] = useState(false);
+
+  // Network Fetch: Retrieve only the rows mathematically locked to the user's token
   const fetchDatabase = useCallback(async () => {
     if (!isLoaded || !isSignedIn) return;
     try {
-      // ADDED: Request the specific Supabase JWT template
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       
@@ -40,10 +45,18 @@ export default function Dashboard() {
     }
   }, [getToken, isLoaded, isSignedIn]);
 
+  // Initialization: Fetch DB and check local storage for API Key
   useEffect(() => {
     fetchDatabase();
+    
+    // Check if the user already saved their key in this browser
+    const savedKey = localStorage.getItem("gemini_api_key");
+    if (savedKey) {
+      setIsKeySaved(true);
+    }
   }, [fetchDatabase]);
 
+  // Form Submission: Add Pupil
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!firstName || !lastInitial) {
@@ -55,12 +68,11 @@ export default function Dashboard() {
     setFormMessage("Encrypting and saving...");
 
     try {
-      // ADDED: Request the specific Supabase JWT template
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       
       const { error } = await supabase.from("pupils").insert({
-        user_id: userId, // ADDED: Mathematically lock the row to your teacher ID
+        user_id: userId, 
         first_name: firstName,
         last_initial: lastInitial.toUpperCase(), 
         is_send: isSend,
@@ -81,18 +93,36 @@ export default function Dashboard() {
       setTimeout(() => setFormMessage(""), 3000);
     } catch (error) {
       console.error(error);
-      // ADDED: Print the exact Supabase error to the UI so we don't have to guess
       setFormMessage(`❌ Supabase Error: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // BYOK Handlers
+  const handleSaveKey = (e) => {
+    e.preventDefault();
+    if (!geminiKey.trim()) return;
+    
+    // Write the key to the device's local browser storage
+    localStorage.setItem("gemini_api_key", geminiKey.trim());
+    setIsKeySaved(true);
+    setGeminiKey(""); // Clear input field for visual security
+  };
+
+  const handleClearKey = () => {
+    // Wipe the key from the device's local browser storage
+    localStorage.removeItem("gemini_api_key");
+    setIsKeySaved(false);
+  };
+
+  // Prevent UI flashing before Clerk verifies identity
   if (!isLoaded) return null;
 
   return (
-    <div style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto" }}>
+    <div style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto", paddingBottom: "100px" }}>
       
+      {/* Header Area */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px", marginBottom: "30px" }}>
         <div>
           <h1 style={{ margin: 0, color: "#111827" }}>Command Center</h1>
@@ -103,10 +133,11 @@ export default function Dashboard() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "30px" }}>
         
+        {/* Left Column: Secure Onboarding Form */}
         <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "5px" }}>Pupil Onboarding</h2>
           <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "20px", lineHeight: "1.5" }}>
-            Enter pupil details below. Strict UK GDPR compliance is active: do not enter full surnames. The RLS engine will automatically bind this record to your cryptographic ID.
+            Enter pupil details below. Strict UK GDPR compliance is active: do not enter full surnames.
           </p>
           
           <form onSubmit={handleAddPupil}>
@@ -167,6 +198,7 @@ export default function Dashboard() {
           </form>
         </div>
 
+        {/* Right Column: Live Database Hydration */}
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "5px" }}>Active Cohort Roster</h2>
           <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "20px" }}>
@@ -196,6 +228,53 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* NEW FULL-WIDTH ROW: BYOK System Configuration */}
+      <div style={{ marginTop: "30px", background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px" }}>
+        <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <span>⚙️</span> System Configuration (BYOK)
+        </h2>
+        <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "20px", maxWidth: "800px", lineHeight: "1.5" }}>
+          To enable AI features, connect your personal Google Gemini API key. 
+          Your key is stored strictly on this device inside your browser&apos;s local storage. It is never sent to our servers.
+        </p>
+
+        {isKeySaved ? (
+          <div style={{ display: "inline-block", background: "#ecfdf5", padding: "15px 20px", borderRadius: "6px", border: "1px solid #a7f3d0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "18px" }}>✅</span>
+              <div>
+                <div style={{ fontWeight: "600", color: "#065f46" }}>API Key Active</div>
+                <div style={{ fontSize: "12px", color: "#047857", marginTop: "2px" }}>Ready for AI generation</div>
+              </div>
+              <button 
+                onClick={handleClearKey}
+                style={{ marginLeft: "20px", padding: "6px 12px", background: "white", color: "#ef4444", border: "1px solid #fca5a5", borderRadius: "4px", cursor: "pointer", fontSize: "12px", fontWeight: "bold", transition: "0.2s" }}
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSaveKey} style={{ display: "flex", gap: "10px", maxWidth: "500px" }}>
+            <input 
+              type="password" 
+              value={geminiKey} 
+              onChange={(e) => setGeminiKey(e.target.value)} 
+              placeholder="Paste your Gemini API key here..."
+              style={{ flex: 1, padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "14px" }} 
+              required
+            />
+            <button 
+              type="submit" 
+              style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", fontSize: "14px" }}
+            >
+              Save Locally
+            </button>
+          </form>
+        )}
+      </div>
+
     </div>
   );
 }

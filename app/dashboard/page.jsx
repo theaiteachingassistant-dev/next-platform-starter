@@ -1,46 +1,97 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth, UserButton } from "@clerk/nextjs";
 import { createClerkSupabaseClient } from "../utils/supabase";
 
 export default function Dashboard() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [pupils, setPupils] = useState([]);
-  const [isRecording, setIsRecording] = useState(false);
   const [dbStatus, setDbStatus] = useState("Connecting to secure database...");
+  
+  // Data Entry State
+  const [firstName, setFirstName] = useState("");
+  const [lastInitial, setLastInitial] = useState("");
+  const [isSend, setIsSend] = useState(false);
+  const [isEal, setIsEal] = useState(false);
+  const [isPp, setIsPp] = useState(false);
+  
+  // UI State
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formMessage, setFormMessage] = useState("");
 
-  // Network Check: Authenticate and fetch from Supabase
-  useEffect(() => {
-    const fetchDatabase = async () => {
-      if (!isLoaded || !isSignedIn) return;
+  // Network Fetch: Retrieves only the rows mathematically locked to the user's token
+  const fetchDatabase = useCallback(async () => {
+    if (!isLoaded || !isSignedIn) return;
+    try {
+      const token = await getToken();
+      const supabase = createClerkSupabaseClient(token);
       
-      try {
-        // Retrieve the secure Clerk token and initialize Supabase
-        const token = await getToken();
-        const supabase = createClerkSupabaseClient(token);
-        
-        // Query the locked pupils table (RLS ensures you only see your own data)
-        const { data, error } = await supabase.from("pupils").select("*");
-        
-        if (error) throw error;
-        
-        setPupils(data || []);
-        setDbStatus(`✅ Database Connected. ${data?.length || 0} Pupils Enrolled.`);
-      } catch (error) {
-        setDbStatus("❌ Database Connection Failed. Check Vercel Variables.");
-        console.error(error);
-      }
-    };
-    
-    fetchDatabase();
-  }, [isLoaded, isSignedIn, getToken]);
+      const { data, error } = await supabase
+        .from("pupils")
+        .select("*")
+        .order("created_at", { ascending: false });
+      
+      if (error) throw error;
+      
+      setPupils(data || []);
+      setDbStatus(`✅ Database Connected. ${data?.length || 0} Pupils Enrolled.`);
+    } catch (error) {
+      setDbStatus("❌ Database Connection Failed. Check Vercel Variables.");
+      console.error(error);
+    }
+  }, [getToken, isLoaded, isSignedIn]);
 
-  // Mock 'Gap' data for visual layout until the data-entry module is built
-  const topGaps = [
-    { subject: "Maths", skill: "Equivalent Fractions", count: 12, send: 3, pp: 4 },
-    { subject: "Writing", skill: "Fronted Adverbials", count: 9, send: 1, pp: 2 },
-    { subject: "Reading", skill: "Inference", count: 7, send: 2, pp: 5 }
-  ];
+  useEffect(() => {
+    fetchDatabase();
+  }, [fetchDatabase]);
+
+  // Form Submission Logic
+  const handleAddPupil = async (e) => {
+    e.preventDefault();
+    if (!firstName || !lastInitial) {
+      setFormMessage("❌ First name and last initial are required.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setFormMessage("Encrypting and saving...");
+
+    try {
+      const token = await getToken();
+      const supabase = createClerkSupabaseClient(token);
+      
+      const { error } = await supabase.from("pupils").insert({
+        first_name: firstName,
+        // Force uppercase for UI consistency
+        last_initial: lastInitial.toUpperCase(), 
+        is_send: isSend,
+        is_eal: isEal,
+        is_pp: isPp
+      });
+
+      if (error) throw error;
+
+      setFormMessage("✅ Pupil securely added.");
+      
+      // Reset inputs immediately
+      setFirstName("");
+      setLastInitial("");
+      setIsSend(false);
+      setIsEal(false);
+      setIsPp(false);
+      
+      // Hydrate UI with the new database count
+      fetchDatabase();
+      
+      // Clear success text after 3 seconds
+      setTimeout(() => setFormMessage(""), 3000);
+    } catch (error) {
+      console.error(error);
+      setFormMessage("❌ Failed to add pupil.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // Prevent UI flashing before Clerk verifies identity
   if (!isLoaded) return null;
@@ -57,85 +108,99 @@ export default function Dashboard() {
         <UserButton />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "30px" }}>
         
-        {/* Left Column: Data & Action */}
-        <div>
-          {/* The Gap Matrix */}
-          <div style={{ background: "#f9fafb", padding: "20px", borderRadius: "8px", marginBottom: "30px", border: "1px solid #e5e7eb" }}>
-            <h2 style={{ marginTop: 0, color: "#374151" }}>Top Class Gaps (The &apos;Nos&apos;)</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "15px" }}>
-              {topGaps.map((gap, i) => (
-                <div key={i} style={{ padding: "15px", background: "white", border: "1px solid #d1d5db", borderRadius: "6px" }}>
-                  <div style={{ fontSize: "12px", color: "#6b7280", textTransform: "uppercase", fontWeight: "bold" }}>{gap.subject}</div>
-                  <div style={{ fontSize: "18px", fontWeight: "600", margin: "5px 0", color: "#111827" }}>{gap.skill}</div>
-                  <div style={{ color: "#ef4444", fontSize: "14px", fontWeight: "bold", marginBottom: "12px" }}>{gap.count} Pupils Missed</div>
-                  
-                  {/* Vulnerable Cohort Tracking */}
-                  <div style={{ fontSize: "12px", color: "#4b5563", display: "flex", gap: "10px" }}>
-                    <span style={{ background: "#fef3c7", padding: "4px 8px", borderRadius: "4px", fontWeight: "600", border: "1px solid #fde68a" }}>SEND: {gap.send}</span>
-                    <span style={{ background: "#dbeafe", padding: "4px 8px", borderRadius: "4px", fontWeight: "600", border: "1px solid #bfdbfe" }}>PP: {gap.pp}</span>
-                  </div>
-                </div>
-              ))}
+        {/* Left Column: Secure Onboarding Form */}
+        <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
+          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "5px" }}>Pupil Onboarding</h2>
+          <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "20px", lineHeight: "1.5" }}>
+            Enter pupil details below. Strict UK GDPR compliance is active: do not enter full surnames. The RLS engine will automatically bind this record to your cryptographic ID.
+          </p>
+          
+          <form onSubmit={handleAddPupil}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "15px", marginBottom: "20px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "14px", fontWeight: "600", marginBottom: "5px", color: "#374151" }}>First Name</label>
+                <input 
+                  type="text" 
+                  value={firstName} 
+                  onChange={(e) => setFirstName(e.target.value)} 
+                  disabled={isSubmitting}
+                  style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} 
+                  placeholder="e.g. Sarah"
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "14px", fontWeight: "600", marginBottom: "5px", color: "#374151" }}>Last Initial</label>
+                <input 
+                  type="text" 
+                  value={lastInitial} 
+                  onChange={(e) => setLastInitial(e.target.value.substring(0, 1))} 
+                  disabled={isSubmitting}
+                  style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} 
+                  placeholder="e.g. J"
+                  maxLength={1}
+                />
+              </div>
             </div>
-          </div>
 
-          {/* AI Action Center */}
-          <div style={{ border: "2px solid #3b82f6", padding: "20px", borderRadius: "8px", background: "#eff6ff" }}>
-            <h2 style={{ marginTop: 0, color: "#1d4ed8", display: "flex", alignItems: "center", gap: "8px" }}>
-              <span>✨</span> AI Recommendation Engine
-            </h2>
-            <p style={{ margin: "0 0 10px 0" }}><strong>Immediate Target:</strong> Equivalent Fractions</p>
-            <p style={{ color: "#1e3a8a", fontStyle: "italic", background: "#dbeafe", padding: "15px", borderRadius: "6px", margin: 0, lineHeight: "1.5" }}>
-              &quot;Generate tiered word problems for 12 pupils. Resources will be actively differentiated by their specific reading levels, incorporate their tracked individual interests to maximize engagement, and simplify phrasing for the 3 SEND pupils.&quot;
-            </p>
-            
-            <div style={{ marginTop: "20px", display: "flex", gap: "10px" }}>
-              <button style={{ padding: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", flex: 1, fontWeight: "bold", fontSize: "14px" }}>
-                Generate Group 1 (1-10)
-              </button>
-              <button style={{ padding: "12px", background: "#93c5fd", color: "white", border: "none", borderRadius: "6px", cursor: "not-allowed", flex: 1, fontWeight: "bold", fontSize: "14px" }}>
-                Generate Group 2 (11-20)
-              </button>
-              <button style={{ padding: "12px", background: "#93c5fd", color: "white", border: "none", borderRadius: "6px", cursor: "not-allowed", flex: 1, fontWeight: "bold", fontSize: "14px" }}>
-                Generate Group 3 (21-30)
-              </button>
+            <div style={{ marginBottom: "25px", display: "flex", gap: "20px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}>
+                <input type="checkbox" checked={isSend} onChange={(e) => setIsSend(e.target.checked)} disabled={isSubmitting} />
+                SEND Register
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}>
+                <input type="checkbox" checked={isEal} onChange={(e) => setIsEal(e.target.checked)} disabled={isSubmitting} />
+                EAL
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}>
+                <input type="checkbox" checked={isPp} onChange={(e) => setIsPp(e.target.checked)} disabled={isSubmitting} />
+                Pupil Premium
+              </label>
             </div>
-            <p style={{ fontSize: "12px", color: "#3b82f6", textAlign: "center", marginTop: "12px", marginBottom: 0, fontWeight: "500" }}>
-              Execution is chunked into 10-pupil batches to strictly bypass Gemini API rate limits and browser timeouts.
-            </p>
-          </div>
-        </div>
 
-        {/* Right Column: Input & Archiving */}
-        <div>
-          <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "20px", borderRadius: "8px", height: "100%", display: "flex", flexDirection: "column" }}>
-            <h2 style={{ marginTop: 0, color: "#374151" }}>Voice Routing</h2>
-            <p style={{ fontSize: "14px", color: "#6b7280", lineHeight: "1.5" }}>
-              Tap to dictate. State the pupil&apos;s name first, then the note. The AI will instantly categorize it into their digital drawer.
-            </p>
-            
             <button 
-              onClick={() => setIsRecording(!isRecording)}
-              style={{ 
-                width: "100%", padding: "20px", marginTop: "10px", fontSize: "16px", cursor: "pointer", border: "none", borderRadius: "8px",
-                background: isRecording ? "#ef4444" : "#10b981", color: "white", fontWeight: "bold",
-                boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)", transition: "all 0.2s"
-              }}
+              type="submit" 
+              disabled={isSubmitting}
+              style={{ width: "100%", padding: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: isSubmitting ? "not-allowed" : "pointer", opacity: isSubmitting ? 0.7 : 1 }}
             >
-              {isRecording ? "🔴 Recording... Tap to Stop" : "🎤 Tap to Dictate Note"}
+              {isSubmitting ? "Locking Record..." : "Securely Add Pupil"}
             </button>
 
-            <div style={{ marginTop: "30px", flex: 1 }}>
-              <h3 style={{ fontSize: "12px", textTransform: "uppercase", color: "#9ca3af", letterSpacing: "0.5px" }}>Recent Files</h3>
-              <div style={{ fontSize: "14px", padding: "12px 0", borderBottom: "1px solid #f3f4f6" }}>
-                <strong>Leo M:</strong> <span style={{ color: "#4b5563" }}>Struggles with borrowing across zero in column subtraction.</span>
+            {formMessage && (
+              <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: formMessage.includes("❌") ? "#ef4444" : "#10b981", textAlign: "center" }}>
+                {formMessage}
+              </p>
+            )}
+          </form>
+        </div>
+
+        {/* Right Column: Live Database Hydration */}
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
+          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "5px" }}>Active Cohort Roster</h2>
+          <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "20px" }}>
+            Live secure feed from Supabase. Only rendering rows linked to your token.
+          </p>
+
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: "400px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
+            {pupils.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: "14px" }}>
+                No pupils found in this secure compartment. Add one to begin.
               </div>
-              <div style={{ fontSize: "14px", padding: "12px 0" }}>
-                <strong>Mia C:</strong> <span style={{ color: "#4b5563" }}>Moved up to Phase 6 Phonics group. EAL vocabulary improving.</span>
-              </div>
-            </div>
+            ) : (
+              pupils.map((pupil, index) => (
+                <div key={index} style={{ background: "white", padding: "12px 15px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: "4px", marginBottom: "5px", border: "1px solid #e5e7eb" }}>
+                  <div style={{ fontWeight: "600", color: "#111827" }}>
+                    {pupil.first_name} {pupil.last_initial}.
+                  </div>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    {pupil.is_send && <span style={{ background: "#fef3c7", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", border: "1px solid #fde68a", color: "#92400e" }}>SEND</span>}
+                    {pupil.is_eal && <span style={{ background: "#e0e7ff", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", border: "1px solid #c7d2fe", color: "#3730a3" }}>EAL</span>}
+                    {pupil.is_pp && <span style={{ background: "#dbeafe", padding: "2px 6px", borderRadius: "4px", fontSize: "11px", fontWeight: "bold", border: "1px solid #bfdbfe", color: "#1e40af" }}>PP</span>}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

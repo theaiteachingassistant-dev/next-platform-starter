@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@clerk/nextjs": "^5.0.0",
     "@netlify/blobs": "^10.7.13",
     "blobshape": "^1.0.0",
     "bright": "^1.0.0",

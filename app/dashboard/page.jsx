@@ -4,26 +4,25 @@ import { useAuth, UserButton } from "@clerk/nextjs";
 import { createClerkSupabaseClient } from "../utils/supabase";
 
 export default function Dashboard() {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  // ADDED: userId extracted from Clerk
+  const { getToken, isLoaded, isSignedIn, userId } = useAuth(); 
   const [pupils, setPupils] = useState([]);
   const [dbStatus, setDbStatus] = useState("Connecting to secure database...");
   
-  // Data Entry State
   const [firstName, setFirstName] = useState("");
   const [lastInitial, setLastInitial] = useState("");
   const [isSend, setIsSend] = useState(false);
   const [isEal, setIsEal] = useState(false);
   const [isPp, setIsPp] = useState(false);
   
-  // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
 
-  // Network Fetch: Retrieves only the rows mathematically locked to the user's token
   const fetchDatabase = useCallback(async () => {
     if (!isLoaded || !isSignedIn) return;
     try {
-      const token = await getToken();
+      // ADDED: Request the specific Supabase JWT template
+      const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       
       const { data, error } = await supabase
@@ -36,7 +35,7 @@ export default function Dashboard() {
       setPupils(data || []);
       setDbStatus(`✅ Database Connected. ${data?.length || 0} Pupils Enrolled.`);
     } catch (error) {
-      setDbStatus("❌ Database Connection Failed. Check Vercel Variables.");
+      setDbStatus("❌ Database Connection Failed.");
       console.error(error);
     }
   }, [getToken, isLoaded, isSignedIn]);
@@ -45,7 +44,6 @@ export default function Dashboard() {
     fetchDatabase();
   }, [fetchDatabase]);
 
-  // Form Submission Logic
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!firstName || !lastInitial) {
@@ -57,12 +55,13 @@ export default function Dashboard() {
     setFormMessage("Encrypting and saving...");
 
     try {
-      const token = await getToken();
+      // ADDED: Request the specific Supabase JWT template
+      const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       
       const { error } = await supabase.from("pupils").insert({
+        user_id: userId, // ADDED: Mathematically lock the row to your teacher ID
         first_name: firstName,
-        // Force uppercase for UI consistency
         last_initial: lastInitial.toUpperCase(), 
         is_send: isSend,
         is_eal: isEal,
@@ -72,34 +71,28 @@ export default function Dashboard() {
       if (error) throw error;
 
       setFormMessage("✅ Pupil securely added.");
-      
-      // Reset inputs immediately
       setFirstName("");
       setLastInitial("");
       setIsSend(false);
       setIsEal(false);
       setIsPp(false);
       
-      // Hydrate UI with the new database count
       fetchDatabase();
-      
-      // Clear success text after 3 seconds
       setTimeout(() => setFormMessage(""), 3000);
     } catch (error) {
       console.error(error);
-      setFormMessage("❌ Failed to add pupil.");
+      // ADDED: Print the exact Supabase error to the UI so we don't have to guess
+      setFormMessage(`❌ Supabase Error: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Prevent UI flashing before Clerk verifies identity
   if (!isLoaded) return null;
 
   return (
     <div style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto" }}>
       
-      {/* Header Area */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px", marginBottom: "30px" }}>
         <div>
           <h1 style={{ margin: 0, color: "#111827" }}>Command Center</h1>
@@ -110,7 +103,6 @@ export default function Dashboard() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "30px" }}>
         
-        {/* Left Column: Secure Onboarding Form */}
         <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "5px" }}>Pupil Onboarding</h2>
           <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "20px", lineHeight: "1.5" }}>
@@ -175,7 +167,6 @@ export default function Dashboard() {
           </form>
         </div>
 
-        {/* Right Column: Live Database Hydration */}
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "5px" }}>Active Cohort Roster</h2>
           <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "20px" }}>

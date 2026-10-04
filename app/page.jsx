@@ -25,7 +25,6 @@ export default function Home() {
   return (
     <div style={{ padding: "40px", fontFamily: "sans-serif", maxWidth: "600px", margin: "0 auto" }}>
       
-      {/* Header with User Profile Picture */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
         <h2>KS2 AI Assistant</h2>
         <SignedIn>
@@ -33,7 +32,6 @@ export default function Home() {
         </SignedIn>
       </div>
 
-      {/* Screen for Logged-Out Strangers */}
       <SignedOut>
         <div style={{ textAlign: "center", padding: "40px", background: "#f3f4f6", borderRadius: "8px" }}>
           <h3>Teacher Access Portal</h3>
@@ -44,7 +42,6 @@ export default function Home() {
         </div>
       </SignedOut>
 
-      {/* Screen for Logged-In Teachers */}
       <SignedIn>
         {isSaved ? (
           <div style={{ padding: "20px", border: "1px solid #e5e7eb", borderRadius: "8px" }}>

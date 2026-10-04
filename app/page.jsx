@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useAuth, SignInButton, UserButton } from "@clerk/nextjs";
+import Link from "next/link";
 
 export default function Home() {
   const { isLoaded, isSignedIn } = useAuth();
@@ -48,9 +49,12 @@ export default function Home() {
             <div style={{ padding: "20px", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
               <h3>✅ API Key Secured</h3>
               <p>Your workspace is ready. Your API key is safely locked on this device.</p>
-              <button style={{ padding: "10px 20px", background: "#22c55e", color: "white", border: "none", borderRadius: "5px", cursor: "pointer", marginTop: "10px" }}>
+              <Link 
+                href="/dashboard"
+                style={{ display: "inline-block", padding: "10px 20px", background: "#22c55e", color: "white", textDecoration: "none", borderRadius: "5px", marginTop: "10px", fontWeight: "bold" }}
+              >
                 Enter Dashboard
-              </button>
+              </Link>
             </div>
           ) : (
             <div style={{ padding: "20px", border: "1px solid #e5e7eb", borderRadius: "8px" }}>

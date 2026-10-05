@@ -60,7 +60,7 @@ export default function Dashboard() {
   const [isProcessingNote, setIsProcessingNote] = useState(false);
   const [noteMessage, setNoteMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [pendingVoiceRoute, setPendingVoiceRoute] = useState(null); // NEW: Holds fuzzy match for confirmation
+  const [pendingVoiceRoute, setPendingVoiceRoute] = useState(null); 
 
   // Worksheet Engine State
   const [wsSelectedPupils, setWsSelectedPupils] = useState([]); 
@@ -68,7 +68,8 @@ export default function Dashboard() {
   const [isGeneratingWs, setIsGeneratingWs] = useState(false);
   const [wsMessage, setWsMessage] = useState("");
   const [generatedSheets, setGeneratedSheets] = useState([]); 
-  const [isDocumentReady, setIsDocumentReady] = useState(false);
+  const [wsTotalTasks, setWsTotalTasks] = useState(0);
+  const [wsCompletedTasks, setWsCompletedTasks] = useState(0);
   const abortControllerRef = useRef(null);
 
   const fetchDashboardData = useCallback(async () => {
@@ -214,9 +215,6 @@ export default function Dashboard() {
     recognition.start();
   };
 
-  // ==========================================
-  // UPDATED: VOICE ROUTING (COLORS + FUZZY MATCH)
-  // ==========================================
   const executeDatabaseRoute = async (payload) => {
     setNoteMessage("🔐 Routing to database...");
     const token = await getToken({ template: "supabase" });
@@ -237,54 +235,54 @@ export default function Dashboard() {
       const mappedSkills = skills.map(s => ({ id: s.id, subject: s.subject, skill: s.skill_name }));
       
       const prompt = `Read the teacher's note. Map it to ONE pupil and ONE skill.
-      Status Rules:
-      - 'Green' / 'Mastered' / 'Nailed it' = 'Achieved'
-      - 'Orange' / 'Amber' / 'Practising' = 'Practising'
-      - 'Red' / 'Not yet' / 'Failed' = 'Not Yet'
-      Default to 'Practising' if no color or status is implied.
-      
-      Fuzzy Match Rules: Find the closest matching pupil and skill. If the exact name or skill is missing or mispronounced, pick the closest logical match but set "confidence" to "low". If it's a perfect match, set "confidence" to "high".
-      
-      Respond ONLY with raw JSON:
-      { "pupil_id": "uuid", "skill_id": "uuid", "status": "Achieved/Practising/Not Yet", "confidence": "high/low", "matched_pupil": "Name", "matched_skill": "Skill" }
-      
-      Note: "${noteText}" 
-      Pupils: ${JSON.stringify(mappedPupils)} 
-      Skills: ${JSON.stringify(mappedSkills)}`;
+      Status Rules: 'Green'/'Mastered' = 'Achieved', 'Orange'/'Amber' = 'Practising', 'Red'/'Not yet' = 'Not Yet'. Default = 'Practising'.
+      Fuzzy Match: Find the closest match. If uncertain, set "confidence" to "low".
+      Respond ONLY with raw JSON: { "pupil_id": "uuid", "skill_id": "uuid", "status": "Achieved/Practising/Not Yet", "confidence": "high/low", "matched_pupil": "Name", "matched_skill": "Skill" }
+      Note: "${noteText}" Pupils: ${JSON.stringify(mappedPupils)} Skills: ${JSON.stringify(mappedSkills)}`;
       
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
       const data = await response.json();
       const aiResult = JSON.parse(data.candidates[0].content.parts[0].text.replace(/```json/g, "").replace(/```/g, "").trim());
       
       if (aiResult.confidence === "low") {
-        setPendingVoiceRoute(aiResult);
-        setNoteMessage("");
+        setPendingVoiceRoute(aiResult); setNoteMessage("");
       } else {
         await executeDatabaseRoute(aiResult);
       }
-    } catch (error) { setNoteMessage("❌ Routing Failed."); console.error(error); } finally { setIsProcessingNote(false); }
+    } catch (error) { setNoteMessage("❌ Routing Failed."); } finally { setIsProcessingNote(false); }
   };
 
-  // Helper delays for Throttling
   const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
-  // ==========================================
-  // UPDATED: BATCH ENGINE WITH EXPONENTIAL RETRY
-  // ==========================================
-  const fetchWithRetry = async (url, options, maxRetries = 3) => {
-    for (let i = 0; i <= maxRetries; i++) {
-      const response = await fetch(url, options);
-      if (response.ok) return response;
-      if (response.status === 429 || response.status === 503) {
-        if (i === maxRetries) throw new Error(`Google API overloaded (Code ${response.status})`);
-        setWsMessage(`⚠️ API Rate Limit hit. Backing off for ${(i + 1) * 10} seconds...`);
-        await delay((i + 1) * 10000); // 10s, 20s, 30s delays just like your spreadsheet
-        continue;
-      }
-      throw new Error(`API Error: ${response.statusText}`);
+  // Custom fetch with absolute 45s timeout
+  const fetchWithTimeout = async (url, options = {}, timeoutMs = 45000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    const combinedSignal = options.signal ? 
+      (options.signal.aborted ? options.signal : controller.signal) : controller.signal;
+    
+    try {
+      const response = await fetch(url, { ...options, signal: combinedSignal });
+      clearTimeout(id);
+      return response;
+    } catch (error) {
+      clearTimeout(id);
+      if (error.name === 'AbortError') throw new Error(`Server Timeout (${timeoutMs/1000}s)`);
+      throw error;
     }
   };
 
+  const getTargetForSubject = (pupilId, subj) => {
+    const subjSkills = skills.filter(s => s.subject === subj).sort((a,b) => a.display_order - b.display_order);
+    if (subjSkills.length === 0) return { skill_name: "General Age-Appropriate Practice" };
+    let foundSkill = subjSkills.find(s => progress.find(p => p.skill_id === s.id && p.pupil_id === pupilId)?.status === 'Practising');
+    if (!foundSkill) foundSkill = subjSkills.find(s => { const stat = progress.find(p => p.skill_id === s.id && p.pupil_id === pupilId)?.status; return stat === 'Not Yet' || !stat; });
+    return foundSkill || subjSkills[0] || { skill_name: "General Age-Appropriate Practice" };
+  };
+
+  // ==========================================
+  // SPLIT-BATCH WORKSHEET ENGINE
+  // ==========================================
   const handleGenerateWorksheet = async () => {
     if (wsSelectedPupils.length === 0) { setWsMessage("❌ Select at least one pupil."); return; }
     const apiKey = localStorage.getItem("gemini_api_key");
@@ -292,85 +290,122 @@ export default function Dashboard() {
 
     const ledger = JSON.parse(localStorage.getItem("worksheet_ledger") || "{}");
     const todayStr = new Date().toISOString().split('T')[0];
-    const duplicates = [];
+    const pupilsToProcess = [];
 
-    wsSelectedPupils.forEach(pid => {
+    // Ledger Check
+    for (const pid of wsSelectedPupils) {
       const pName = pupils.find(p => p.id === pid)?.first_name;
-      if (ledger[`${pid}_${wsSubject}_${todayStr}`]) duplicates.push(pName);
-    });
-
-    if (duplicates.length > 0) {
-      const force = window.confirm(`⚠️ You already generated a ${wsSubject} sheet for ${duplicates.join(", ")} today.\n\nClick OK to Force Regenerate, or Cancel to stop.`);
-      if (!force) return;
+      if (ledger[`${pid}_${wsSubject}_${todayStr}`]) {
+        if (window.confirm(`⚠️ You already generated a ${wsSubject} sheet for ${pName} today. Force Regenerate?`)) {
+          pupilsToProcess.push(pid);
+        }
+      } else {
+        pupilsToProcess.push(pid);
+      }
     }
 
-    setIsGeneratingWs(true); setIsDocumentReady(false); setGeneratedSheets([]); 
-    const newSheets = [];
+    if (pupilsToProcess.length === 0) return;
+
+    setIsGeneratingWs(true); 
+    setGeneratedSheets([]); 
     abortControllerRef.current = new AbortController();
 
-    try {
-      const subjectsToRun = wsSubject === "Weekly Pack" ? ["Maths", "Writing", "Reading", "Spelling", "Timestables"] : [wsSubject];
-      let totalCalls = wsSelectedPupils.length * subjectsToRun.length;
-      let callsCompleted = 0;
+    const splitBatches = wsSubject === "Weekly Pack" ? ["Literacy", "Numeracy"] : [wsSubject];
+    const totalCalls = pupilsToProcess.length * splitBatches.length;
+    setWsTotalTasks(totalCalls);
+    setWsCompletedTasks(0);
+    let completedCount = 0;
 
-      for (const pid of wsSelectedPupils) {
+    try {
+      for (const pid of pupilsToProcess) {
+        if (abortControllerRef.current.signal.aborted) throw new Error("Halted by user.");
+        
         const targetPupil = pupils.find(p => p.id === pid);
         const interests = targetPupil.interests || "general fun topics";
         const readLevel = targetPupil.reading_level || "Year 3 Expected";
         const pGender = targetPupil.gender || "Unspecified";
+        const pro = pGender === "Male" ? "he/him" : (pGender === "Female" ? "she/her" : "they/them");
 
-        for (const subj of subjectsToRun) {
+        let pupilAnswers = [];
+
+        for (const batch of splitBatches) {
           if (abortControllerRef.current.signal.aborted) throw new Error("Halted by user.");
-          callsCompleted++;
-          setWsMessage(`⚙️ Synthesizing ${callsCompleted} of ${totalCalls} (${targetPupil.first_name} - ${subj})...`);
           
-          const subjSkills = skills.filter(s => s.subject === subj).sort((a,b) => a.display_order - b.display_order);
-          let targetSkill = { skill_name: "General Age-Appropriate Practice" }; 
-          
-          if (subjSkills.length > 0) {
-            let foundSkill = subjSkills.find(s => progress.find(p => p.skill_id === s.id && p.pupil_id === targetPupil.id)?.status === 'Practising');
-            if (!foundSkill) foundSkill = subjSkills.find(s => { const stat = progress.find(p => p.skill_id === s.id && p.pupil_id === targetPupil.id)?.status; return stat === 'Not Yet' || !stat; });
-            if (foundSkill) targetSkill = foundSkill;
-          }
+          setWsMessage(`⚙️ Synthesizing ${targetPupil.first_name} (${batch})...`);
 
           let systemPrompt = `You are an expert UK primary school teacher. 
-          CRITICAL: The child is a ${pGender}. Ensure correct pronouns (he/she/him/her). The child's reading ability is: "${readLevel}". Adapt all vocabulary to match this reading level.
-          Output ONLY raw, valid JSON in this exact format: { "worksheet": "<html> string", "answers": "<html> string" }. Format HTML nicely using <h2>, <p>, <strong>, and lists. Add multiple <br> and underscores ____________ for writing lines after EVERY question. `;
+          CRITICAL: The child is a ${pGender} (use ${pro} pronouns). Reading ability: "${readLevel}". Adapt all text to this level.
+          Output ONLY raw JSON: { "worksheet": "<html> string", "answers": "<html> string" }. Format HTML nicely using <h2>, <p>, <strong>, and lists. Add multiple <br> and underscores ____________ for writing lines after EVERY question.`;
 
-          if (subj === "Maths") systemPrompt += `Create a Maths worksheet for: "${targetSkill.skill_name}". Include: 5 arithmetic questions, then 3 word problems about ${interests}, then 1 challenge.`;
-          else if (subj === "Writing") systemPrompt += `Create a Writing worksheet for: "${targetSkill.skill_name}". Structure: 1) Identify it in a sentence, 2) Apply it in a gap-fill, 3) Write a paragraph about ${interests}.`;
-          else if (subj === "Reading") systemPrompt += `Create a Reading worksheet. Write a short text (150 words) about ${interests}. Follow with 5 NFER-style comprehension questions on: "${targetSkill.skill_name}".`;
-          else if (subj === "Spelling") systemPrompt += `Create a Spelling worksheet for: "${targetSkill.skill_name}". Provide 8 words. Break them down phonetically, then provide 3 blank lines next to each.`;
-          else if (subj === "Timestables") systemPrompt += `Create a Timestables sheet focusing on: "${targetSkill.skill_name}". Provide 20 randomized questions.`;
+          if (batch === "Literacy") {
+            const r = getTargetForSubject(pid, "Reading");
+            const w = getTargetForSubject(pid, "Writing");
+            const s = getTargetForSubject(pid, "Spelling");
+            systemPrompt += `\nCreate a Literacy Pack separated by <h2> headers:
+            1. Reading: 150-word story about ${interests}. 5 NFER-style comprehension questions on "${r.skill_name}".
+            2. Writing: Target "${w.skill_name}". 1) Identify in sentence, 2) Gap-fill, 3) Write paragraph about ${interests}.
+            3. Spelling: Target "${s.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
+          } else if (batch === "Numeracy") {
+            const m = getTargetForSubject(pid, "Maths");
+            const t = getTargetForSubject(pid, "Timestables");
+            systemPrompt += `\nCreate a Numeracy Pack separated by <h2> headers:
+            1. Maths: Target "${m.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.
+            2. Timestables: Target "${t.skill_name}". 20 randomized questions.`;
+          } else {
+            const tg = getTargetForSubject(pid, wsSubject);
+            if (batch === "Maths") systemPrompt += `\nMaths worksheet for: "${tg.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.`;
+            else if (batch === "Writing") systemPrompt += `\nWriting worksheet for: "${tg.skill_name}". 1) Identify, 2) Apply gap-fill, 3) Paragraph about ${interests}.`;
+            else if (batch === "Reading") systemPrompt += `\nReading worksheet. 150-word text about ${interests}. 5 NFER comprehension questions on: "${tg.skill_name}".`;
+            else if (batch === "Spelling") systemPrompt += `\nSpelling worksheet for: "${tg.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
+            else if (batch === "Timestables") systemPrompt += `\nTimestables sheet focusing on: "${tg.skill_name}". 20 randomized questions.`;
+          }
 
-          // Using the new robust fetch wrapper
-          const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }], generationConfig: { temperature: 0.7 } }),
-            signal: abortControllerRef.current.signal
-          });
-          
-          const data = await response.json();
-          const rawText = data.candidates[0].content.parts[0].text.trim();
-          const cleanJson = rawText.replace(/```json/g, "").replace(/```html/g, "").replace(/```/g, "");
-          const parsed = JSON.parse(cleanJson);
-          
-          newSheets.push({ pupilName: targetPupil.first_name, subject: subj, skillName: targetSkill.skill_name, worksheet: parsed.worksheet, answers: parsed.answers });
+          try {
+            const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }], generationConfig: { temperature: 0.7 } }),
+              signal: abortControllerRef.current.signal
+            }, 45000); // 45 second absolute timeout
+            
+            const data = await response.json();
+            const rawText = data.candidates[0].content.parts[0].text.trim();
+            const cleanJson = rawText.replace(/```json/g, "").replace(/```html/g, "").replace(/```/g, "");
+            const parsed = JSON.parse(cleanJson);
+            
+            // Incremental Rendering: Push directly to state
+            setGeneratedSheets(prev => [...prev, { 
+              pupilName: targetPupil.first_name, 
+              subject: batch, 
+              worksheet: parsed.worksheet, 
+              answers: parsed.answers 
+            }]);
 
-          // Throttle between normal requests
-          if (callsCompleted < totalCalls) {
-            setWsMessage(`⏳ Pacing API (4s)... (${callsCompleted}/${totalCalls})`);
-            await delay(4500); // 4.5 seconds to guarantee we stay under 15 RPM
+          } catch (fetchErr) {
+            if (fetchErr.message.includes('AbortError')) throw fetchErr;
+            setGeneratedSheets(prev => [...prev, { 
+              pupilName: targetPupil.first_name, 
+              subject: batch, 
+              worksheet: `<h3>⚠️ Server Timeout or Error for ${batch}</h3><p>${fetchErr.message}</p>`, 
+              answers: "N/A" 
+            }]);
+          }
+
+          completedCount++;
+          setWsCompletedTasks(completedCount);
+
+          if (completedCount < totalCalls) {
+            setWsMessage(`⏳ Pacing API (4.5s) to prevent crash...`);
+            await delay(4500); 
           }
         }
         ledger[`${pid}_${wsSubject}_${todayStr}`] = true;
       }
+      
       localStorage.setItem("worksheet_ledger", JSON.stringify(ledger));
-      setGeneratedSheets(newSheets);
-      setIsDocumentReady(true);
       setWsMessage("✅ Generation Complete.");
+
     } catch (error) { 
-      if (error.name === 'AbortError') setWsMessage("⏹️ Generation halted.");
+      if (error.name === 'AbortError' || error.message === 'Halted by user.') setWsMessage("⏹️ Generation halted.");
       else setWsMessage(`❌ ${error.message}`); 
     } finally { 
       setIsGeneratingWs(false); abortControllerRef.current = null;
@@ -408,7 +443,6 @@ export default function Dashboard() {
             <h2 style={{ marginTop: 0, color: "#0369a1", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>🎙️</span> Voice Note-Taker</h2>
             <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} disabled={isProcessingNote} placeholder="e.g. 'Leo struggled with Addition. Red.'" style={{ width: "100%", height: "80px", padding: "10px", border: "1px solid #7dd3fc", borderRadius: "8px", resize: "none" }} />
             
-            {/* NEW: Fuzzy Match Confirmation Box */}
             {pendingVoiceRoute && (
               <div style={{ background: "#fef3c7", border: "1px solid #fbbf24", padding: "12px", borderRadius: "6px", marginTop: "10px", fontSize: "14px" }}>
                 <p style={{ margin: "0 0 10px 0", color: "#92400e", fontWeight: "bold" }}>🤔 Did you mean:</p>
@@ -435,7 +469,19 @@ export default function Dashboard() {
 
           <div style={{ background: "#fdf4ff", border: "2px solid #f5d0fe", padding: "25px", borderRadius: "8px" }}>
             <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>📄</span> Batch Worksheet Engine</h2>
-            <div style={{ display: "flex", gap: "15px", marginBottom: "15px", marginTop: "15px", height: "150px" }}>
+            
+            {/* NEW: Progress Bar */}
+            {(isGeneratingWs || wsCompletedTasks > 0) && (
+              <div style={{ marginBottom: "15px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#86198f", fontWeight: "bold", marginBottom: "4px" }}>
+                  <span>{wsMessage}</span>
+                  <span>{wsCompletedTasks} / {wsTotalTasks}</span>
+                </div>
+                <progress value={wsCompletedTasks} max={wsTotalTasks} style={{ width: "100%", height: "10px" }} />
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "15px", marginBottom: "15px", height: "130px" }}>
               <div style={{ flex: 1, border: "1px solid #f0abfc", borderRadius: "6px", background: "white", display: "flex", flexDirection: "column" }}>
                 <div style={{ padding: "8px", borderBottom: "1px solid #fdf4ff", background: "#fdf4ff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: "13px", fontWeight: "bold", color: "#86198f" }}>Select Pupils ({wsSelectedPupils.length})</span>
@@ -451,27 +497,23 @@ export default function Dashboard() {
                 </div>
               </div>
               <select value={wsSubject} onChange={(e) => setWsSubject(e.target.value)} disabled={isGeneratingWs} style={{ flex: 1, padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px", height: "fit-content" }}>
-                <option value="Weekly Pack">Weekly Pack (All 5)</option><option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
+                <option value="Weekly Pack">Weekly Pack (Split-Batch)</option><option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
               </select>
             </div>
 
             {isGeneratingWs ? (
-              <div style={{ display: "flex", gap: "10px" }}>
-                <div style={{ flex: 1, padding: "12px", background: "#f5d0fe", color: "#86198f", border: "none", borderRadius: "6px", fontWeight: "bold", textAlign: "center", fontSize: "13px" }}>{wsMessage}</div>
-                <button onClick={() => abortControllerRef.current?.abort()} style={{ padding: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>⏹️ Halt</button>
-              </div>
+              <button onClick={() => abortControllerRef.current?.abort()} style={{ width: "100%", padding: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>⏹️ Halt Generation</button>
             ) : (
               <button onClick={handleGenerateWorksheet} disabled={wsSelectedPupils.length === 0} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: wsSelectedPupils.length === 0 ? "not-allowed" : "pointer", opacity: wsSelectedPupils.length === 0 ? 0.5 : 1 }}>✨ Generate Resources</button>
             )}
 
-            {isDocumentReady && !isGeneratingWs && (
+            {generatedSheets.length > 0 && !isGeneratingWs && (
                <button onClick={handleRevealDocument} style={{ width: "100%", padding: "12px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", marginTop: "10px", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}><span>✅</span> View Document Ready to Print</button>
             )}
           </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "30px", marginBottom: "30px" }}>
-          
           <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
             <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "20px" }}>Pupil Onboarding</h2>
             <form onSubmit={handleAddPupil}>
@@ -596,14 +638,14 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {generatedSheets.length > 0 && isDocumentReady && (
+      {generatedSheets.length > 0 && (
         <div id="printable-document" style={{ maxWidth: "800px", margin: "40px auto", padding: "40px", background: "white", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
           <div className="no-print" style={{ textAlign: "right", marginBottom: "20px" }}>
             <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>🖨️ Print Document</button>
           </div>
           {generatedSheets.map((sheet, idx) => (
             <div key={`ws-${idx}`} className={idx > 0 ? "page-break" : ""}>
-              <div className="worksheet-header">{sheet.pupilName} | {sheet.subject} Practice: {sheet.skillName}</div>
+              <div className="worksheet-header">{sheet.pupilName} | {sheet.subject}</div>
               <div dangerouslySetInnerHTML={{ __html: sheet.worksheet }} style={{ lineHeight: "1.8", fontSize: "16px" }} />
             </div>
           ))}
@@ -611,7 +653,7 @@ export default function Dashboard() {
             <h1 style={{ textAlign: "center", borderBottom: "3px solid black", paddingBottom: "10px" }}>Answer Keys</h1>
             {generatedSheets.map((sheet, idx) => (
               <div key={`ans-${idx}`} style={{ marginTop: "30px" }}>
-                <h3>{sheet.pupilName} | {sheet.subject}: {sheet.skillName}</h3>
+                <h3>{sheet.pupilName} | {sheet.subject}</h3>
                 <div dangerouslySetInnerHTML={{ __html: sheet.answers }} style={{ fontSize: "14px", color: "#374151", background: "#f9fafb", padding: "15px", borderRadius: "6px", border: "1px dashed #d1d5db" }} />
               </div>
             ))}

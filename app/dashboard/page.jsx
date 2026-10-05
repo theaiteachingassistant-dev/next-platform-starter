@@ -24,6 +24,10 @@ export default function Dashboard() {
   const [interestOne, setInterestOne] = useState("");
   const [interestTwo, setInterestTwo] = useState("");
   const [interestThree, setInterestThree] = useState("");
+  
+  // NEW: Reading Level State
+  const [readingLevel, setReadingLevel] = useState("Year 3 Expected");
+
   const [isPupilSubmitting, setIsPupilSubmitting] = useState(false);
   const [pupilMessage, setPupilMessage] = useState("");
 
@@ -44,12 +48,12 @@ export default function Dashboard() {
   const [noteMessage, setNoteMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
 
-  // NEW: Worksheet Engine State
+  // Worksheet Engine State
   const [wsPupilId, setWsPupilId] = useState("");
   const [wsSubject, setWsSubject] = useState("Weekly Pack");
   const [isGeneratingWs, setIsGeneratingWs] = useState(false);
   const [wsMessage, setWsMessage] = useState("");
-  const [generatedSheets, setGeneratedSheets] = useState([]); // Will hold { subject, html, answers }
+  const [generatedSheets, setGeneratedSheets] = useState([]); 
 
   // Network Fetch
   const fetchDashboardData = useCallback(async () => {
@@ -103,9 +107,18 @@ export default function Dashboard() {
       const combinedInterests = [interestOne, interestTwo, interestThree].filter(Boolean).join(", ");
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
-      await supabase.from("pupils").insert({ user_id: userId, first_name: firstName, last_initial: lastInitial.toUpperCase(), is_send: isSend, is_eal: isEal, is_pp: isPp, interests: combinedInterests });
+      await supabase.from("pupils").insert({ 
+        user_id: userId, 
+        first_name: firstName, 
+        last_initial: lastInitial.toUpperCase(), 
+        is_send: isSend, 
+        is_eal: isEal, 
+        is_pp: isPp, 
+        interests: combinedInterests,
+        reading_level: readingLevel
+      });
       setPupilMessage("✅ Pupil added.");
-      setFirstName(""); setLastInitial(""); setIsSend(false); setIsEal(false); setIsPp(false); setInterestOne(""); setInterestTwo(""); setInterestThree("");
+      setFirstName(""); setLastInitial(""); setIsSend(false); setIsEal(false); setIsPp(false); setInterestOne(""); setInterestTwo(""); setInterestThree(""); setReadingLevel("Year 3 Expected");
       fetchDashboardData();
       setTimeout(() => setPupilMessage(""), 3000);
     } catch (error) { setPupilMessage(`❌ Error: ${error.message}`); } finally { setIsPupilSubmitting(false); }
@@ -161,7 +174,7 @@ export default function Dashboard() {
   };
 
   // ==========================================
-  // NEW: THE DIFFERENTIATED WORKSHEET ENGINE
+  // DIFFERENTIATED WORKSHEET ENGINE
   // ==========================================
   const handleGenerateWorksheet = async () => {
     if (!wsPupilId) { setWsMessage("❌ Select a pupil first."); return; }
@@ -170,49 +183,49 @@ export default function Dashboard() {
 
     const targetPupil = pupils.find(p => p.id === wsPupilId);
     const interests = targetPupil.interests || "general fun topics";
+    const readLevel = targetPupil.reading_level || "Year 3 Expected";
     const subjectsToRun = wsSubject === "Weekly Pack" ? ["Maths", "Writing", "Reading", "Spelling", "Timestables"] : [wsSubject];
     
     setIsGeneratingWs(true);
-    setGeneratedSheets([]); // Clear old sheets
+    setGeneratedSheets([]); 
     const newSheets = [];
 
     try {
-      // Loop sequentially to respect Free Tier API limits
       for (const subj of subjectsToRun) {
         setWsMessage(`⚙️ Synthesizing ${subj}...`);
         
-        // 1. Find the target skill using left-to-right logic
         const subjSkills = skills.filter(s => s.subject === subj).sort((a,b) => a.display_order - b.display_order);
-        if (subjSkills.length === 0) continue; // Skip if no skills mapped for this subject
-
-        let targetSkill = subjSkills.find(s => {
-          const stat = progress.find(p => p.skill_id === s.id && p.pupil_id === wsPupilId)?.status;
-          return stat === 'Practising';
-        });
-        if (!targetSkill) {
-          targetSkill = subjSkills.find(s => {
-            const stat = progress.find(p => p.skill_id === s.id && p.pupil_id === wsPupilId)?.status;
-            return stat === 'Not Yet' || !stat;
-          });
+        
+        // FIX: If no skill is mapped for a subject, don't skip. Default to "General Practice".
+        let targetSkill = { skill_name: "General Age-Appropriate Practice" }; 
+        
+        if (subjSkills.length > 0) {
+          let foundSkill = subjSkills.find(s => progress.find(p => p.skill_id === s.id && p.pupil_id === wsPupilId)?.status === 'Practising');
+          if (!foundSkill) {
+            foundSkill = subjSkills.find(s => {
+              const stat = progress.find(p => p.skill_id === s.id && p.pupil_id === wsPupilId)?.status;
+              return stat === 'Not Yet' || !stat;
+            });
+          }
+          if (foundSkill) targetSkill = foundSkill;
         }
-        if (!targetSkill) targetSkill = subjSkills[0]; // Fallback to first skill
 
-        // 2. Build the Pedagogical Prompt
-        let systemPrompt = `You are an expert UK primary school teacher (Year 3). Output ONLY raw, valid JSON in this exact format: { "worksheet": "<html> string", "answers": "<html> string" }. Do NOT use markdown code blocks (\`\`\`). Format the HTML nicely using <h2>, <p>, <strong>, and lists. Add multiple <br> and underscores ____________ for physical writing lines after EVERY question. `;
+        let systemPrompt = `You are an expert UK primary school teacher. 
+        CRITICAL: The child's reading ability is: "${readLevel}". You must strictly adapt all vocabulary, sentence structure, and text complexity to match this reading level exactly.
+        Output ONLY raw, valid JSON in this exact format: { "worksheet": "<html> string", "answers": "<html> string" }. Do NOT use markdown code blocks (\`\`\`). Format HTML nicely using <h2>, <p>, <strong>, and lists. Add multiple <br> and underscores ____________ for physical writing lines after EVERY question. `;
 
         if (subj === "Maths") {
-          systemPrompt += `Create a Maths worksheet for the skill: "${targetSkill.skill_name}". Include: 5 arithmetic questions, then 3 word-problem reasoning questions based on the child's interests (${interests}), then 1 challenge question.`;
+          systemPrompt += `Create a Maths worksheet for: "${targetSkill.skill_name}". Include: 5 arithmetic questions, then 3 word-problem reasoning questions based on the child's interests (${interests}), then 1 challenge question.`;
         } else if (subj === "Writing") {
-          systemPrompt += `Create an English Writing worksheet for the skill: "${targetSkill.skill_name}". Structure into 3 parts: 1) Identify the skill (find it in a sentence), 2) Apply the skill (fill in the blank), 3) Prove mastery (write an original paragraph).`;
+          systemPrompt += `Create an English Writing worksheet for: "${targetSkill.skill_name}". Structure into 3 parts: 1) Identify the skill (find it in a sentence), 2) Apply the skill (fill in the blank), 3) Prove mastery (write an original paragraph about ${interests}).`;
         } else if (subj === "Reading") {
-          systemPrompt += `Create a Reading comprehension worksheet. Write a short, engaging text (150 words) about the child's interests (${interests}). Follow it with 5 NFER-style Year 3 comprehension questions focusing on the skill: "${targetSkill.skill_name}".`;
+          systemPrompt += `Create a Reading comprehension worksheet. Write a short, engaging text (150 words) about the child's interests (${interests}). Follow it with 5 NFER-style comprehension questions focusing on: "${targetSkill.skill_name}".`;
         } else if (subj === "Spelling") {
           systemPrompt += `Create a Spelling worksheet for the rule/skill: "${targetSkill.skill_name}". Provide 8 words. Break them down phonetically to help pronunciation, then provide 3 blank lines next to each for copying/practice.`;
         } else if (subj === "Timestables") {
           systemPrompt += `Create a Timestables practice sheet focusing on: "${targetSkill.skill_name}". Provide 20 randomized questions (e.g., 3 x 4 =, 12 ÷ 3 =).`;
         }
 
-        // 3. Fetch from Gemini
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -225,7 +238,6 @@ export default function Dashboard() {
         if (!response.ok) throw new Error(`Google API Error for ${subj}`);
         const data = await response.json();
         
-        // 4. Clean and Parse JSON
         const rawText = data.candidates[0].content.parts[0].text.trim();
         const cleanJson = rawText.replace(/```json/g, "").replace(/```html/g, "").replace(/```/g, "");
         const parsed = JSON.parse(cleanJson);
@@ -254,11 +266,6 @@ export default function Dashboard() {
 
   return (
     <>
-      {/* 
-        NEW: PRINT CSS INJECTION 
-        This stylesheet ensures that when you hit Ctrl+P, the entire SaaS UI disappears,
-        leaving ONLY the A4 formatted worksheets and answer keys.
-      */}
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
           body * { visibility: hidden; }
@@ -281,10 +288,8 @@ export default function Dashboard() {
           <UserButton />
         </div>
 
-        {/* Row 1: The AI Engines (Voice & Worksheet) */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "30px", marginBottom: "30px" }}>
           
-          {/* Voice Routing */}
           <div style={{ background: "#f0f9ff", border: "2px solid #bae6fd", padding: "25px", borderRadius: "8px" }}>
             <h2 style={{ marginTop: 0, color: "#0369a1", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>🎙️</span> Voice Note-Taker</h2>
             <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} disabled={isProcessingNote} placeholder="e.g. 'Leo is struggling with 3-digit Addition today.'" style={{ width: "100%", height: "80px", padding: "10px", border: "1px solid #7dd3fc", borderRadius: "8px", resize: "none" }} />
@@ -294,7 +299,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* NEW: Differentiated Worksheet Engine */}
           <div style={{ background: "#fdf4ff", border: "2px solid #f5d0fe", padding: "25px", borderRadius: "8px" }}>
             <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>📄</span> Differentiated Worksheet Engine</h2>
             <p style={{ fontSize: "13px", color: "#a21caf", marginBottom: "15px" }}>Automatically targets the pupil's active gaps and injects their interests.</p>
@@ -322,8 +326,8 @@ export default function Dashboard() {
 
         </div>
 
-        {/* The rest of the UI (Pupils, Matrix, Skills, Settings) */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "30px", marginBottom: "30px" }}>
+          
           <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
             <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "20px" }}>Pupil Onboarding</h2>
             <form onSubmit={handleAddPupil}>
@@ -331,12 +335,30 @@ export default function Dashboard() {
                 <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="First Name" />
                 <input type="text" value={lastInitial} onChange={(e) => setLastInitial(e.target.value.substring(0, 1))} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="Last Initial (e.g. J)" maxLength={1} />
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
-                <label style={{ fontSize: "13px", fontWeight: "600", color: "#4b5563" }}>Child's Interests (For AI Generation)</label>
-                <input type="text" value={interestOne} onChange={(e) => setInterestOne(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 1 (e.g. Dinosaurs)" />
-                <input type="text" value={interestTwo} onChange={(e) => setInterestTwo(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 2 (e.g. Space)" />
-                <input type="text" value={interestThree} onChange={(e) => setInterestThree(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 3 (e.g. Football)" />
+              
+              {/* NEW: Reading Level Dropdown */}
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ fontSize: "13px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "5px" }}>Reading Level</label>
+                <select value={readingLevel} onChange={(e) => setReadingLevel(e.target.value)} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }}>
+                  <option value="Phonics Phase 1/2 (Early Years)">Phonics Phase 1/2 (Early Years)</option>
+                  <option value="Phonics Phase 3/4 (Reception/Year 1)">Phonics Phase 3/4 (Reception/Year 1)</option>
+                  <option value="Phonics Phase 5/6 (Year 1/2)">Phonics Phase 5/6 (Year 1/2)</option>
+                  <option value="Year 2 Expected">Year 2 Expected</option>
+                  <option value="Year 3 Expected">Year 3 Expected</option>
+                  <option value="Year 4 Expected">Year 4 Expected</option>
+                  <option value="Year 5 Expected">Year 5 Expected</option>
+                  <option value="Year 6 Expected">Year 6 Expected</option>
+                  <option value="Year 6 Greater Depth">Year 6 Greater Depth</option>
+                </select>
               </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+                <label style={{ fontSize: "13px", fontWeight: "600", color: "#4b5563" }}>Child's Interests</label>
+                <input type="text" value={interestOne} onChange={(e) => setInterestOne(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 1" />
+                <input type="text" value={interestTwo} onChange={(e) => setInterestTwo(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 2" />
+                <input type="text" value={interestThree} onChange={(e) => setInterestThree(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 3" />
+              </div>
+              
               <div style={{ marginBottom: "25px", display: "flex", gap: "20px" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px" }}><input type="checkbox" checked={isSend} onChange={(e) => setIsSend(e.target.checked)} /> SEND</label>
                 <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px" }}><input type="checkbox" checked={isEal} onChange={(e) => setIsEal(e.target.checked)} /> EAL</label>
@@ -348,7 +370,7 @@ export default function Dashboard() {
 
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
             <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Interactive Cohort Matrix</h2>
-            <div style={{ flex: 1, overflowY: "auto", maxHeight: "600px", paddingRight: "10px" }}>
+            <div style={{ flex: 1, overflowY: "auto", maxHeight: "750px", paddingRight: "10px" }}>
               {pupils.map((pupil) => {
                 const isExpanded = expandedPupil === pupil.id;
                 return (
@@ -358,7 +380,12 @@ export default function Dashboard() {
                     </div>
                     {isExpanded && (
                       <div style={{ padding: "15px", background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
-                        {pupil.interests && <div style={{ marginBottom: "15px", fontSize: "13px" }}><strong>Interests:</strong> {pupil.interests}</div>}
+                        
+                        <div style={{ marginBottom: "15px", fontSize: "13px", display: "grid", gap: "5px" }}>
+                          <div><strong>Reading Level:</strong> <span style={{ color: "#4f46e5", fontWeight: "bold" }}>{pupil.reading_level || "Year 3 Expected"}</span></div>
+                          {pupil.interests && <div><strong>Interests:</strong> {pupil.interests}</div>}
+                        </div>
+
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                           {skills.map((skill) => {
                             const currentStatus = progress.find(pr => pr.pupil_id === pupil.id && pr.skill_id === skill.id)?.status || 'Not Yet';
@@ -381,20 +408,32 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", marginBottom: "30px" }}>
-          <h2 style={{ marginTop: 0, color: "#374151" }}>⚙ AI System Configuration (BYOK)</h2>
-          <form onSubmit={handleSaveKey} style={{ display: "flex", gap: "10px", maxWidth: "500px", marginTop: "15px" }}>
-            <input type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="Paste Gemini API key..." style={{ flex: 1, padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} />
-            <button type="submit" style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold" }}>Save Locally</button>
-          </form>
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
+          <div style={{ background: "#fdf4ff", padding: "25px", borderRadius: "8px", border: "1px solid #f5d0fe" }}>
+            <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px" }}>📚 Curriculum Skills Manager</h2>
+            <form onSubmit={handleAddSkill}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: "10px", marginBottom: "20px", marginTop: "15px" }}>
+                <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} disabled={isSkillSubmitting} style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }}>
+                  <option value="Maths">Maths</option><option value="Writing">Writing</option><option value="Reading">Reading</option><option value="Spelling">Spelling</option><option value="Timestables">Timestables</option>
+                </select>
+                <input type="text" value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} disabled={isSkillSubmitting} placeholder="e.g. 3-digit Addition" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} />
+                <input type="number" value={newDisplayOrder} onChange={(e) => setNewDisplayOrder(e.target.value)} disabled={isSkillSubmitting} placeholder="Order" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} min="1" />
+              </div>
+              <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold" }}>Map New Skill</button>
+            </form>
+          </div>
+
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px" }}>
+            <h2 style={{ marginTop: 0, color: "#374151" }}>⚙ AI System Config</h2>
+            <form onSubmit={handleSaveKey} style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
+              <input type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="Paste Gemini API key..." style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} />
+              <button type="submit" style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold" }}>Save Locally</button>
+            </form>
+          </div>
         </div>
 
       </div>
 
-      {/* 
-        NEW: THE RENDERED WORKSHEET OUTBOX 
-        This is visible on the screen for review, and perfectly formatted for printing.
-      */}
       {generatedSheets.length > 0 && (
         <div id="printable-document" style={{ maxWidth: "800px", margin: "40px auto", padding: "40px", background: "white", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
           
@@ -402,7 +441,6 @@ export default function Dashboard() {
             <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>🖨️ Print Document</button>
           </div>
 
-          {/* Loop 1: Render All Worksheets */}
           {generatedSheets.map((sheet, idx) => (
             <div key={`ws-${idx}`} className={idx > 0 ? "page-break" : ""}>
               <div className="worksheet-header">
@@ -412,7 +450,6 @@ export default function Dashboard() {
             </div>
           ))}
 
-          {/* Loop 2: Render All Answer Keys at the End */}
           <div className="page-break">
             <h1 style={{ textAlign: "center", borderBottom: "3px solid black", paddingBottom: "10px" }}>Answer Keys</h1>
             {generatedSheets.map((sheet, idx) => (

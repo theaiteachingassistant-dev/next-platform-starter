@@ -70,6 +70,7 @@ export default function Dashboard() {
   const [generatedSheets, setGeneratedSheets] = useState([]); 
   const [wsTotalTasks, setWsTotalTasks] = useState(0);
   const [wsCompletedTasks, setWsCompletedTasks] = useState(0);
+  const [isDocumentReady, setIsDocumentReady] = useState(false);
   const abortControllerRef = useRef(null);
 
   const fetchDashboardData = useCallback(async () => {
@@ -254,8 +255,8 @@ export default function Dashboard() {
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
-  // Custom fetch with absolute 45s timeout
-  const fetchWithTimeout = async (url, options = {}, timeoutMs = 45000) => {
+  // Custom fetch with absolute 60s timeout for massive single payloads
+  const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
     const combinedSignal = options.signal ? 
@@ -281,7 +282,7 @@ export default function Dashboard() {
   };
 
   // ==========================================
-  // SPLIT-BATCH WORKSHEET ENGINE
+  // WORKSHEET ENGINE (SINGLE MEGA-PROMPT PER PUPIL)
   // ==========================================
   const handleGenerateWorksheet = async () => {
     if (wsSelectedPupils.length === 0) { setWsMessage("❌ Select at least one pupil."); return; }
@@ -292,7 +293,6 @@ export default function Dashboard() {
     const todayStr = new Date().toISOString().split('T')[0];
     const pupilsToProcess = [];
 
-    // Ledger Check
     for (const pid of wsSelectedPupils) {
       const pName = pupils.find(p => p.id === pid)?.first_name;
       if (ledger[`${pid}_${wsSubject}_${todayStr}`]) {
@@ -308,10 +308,10 @@ export default function Dashboard() {
 
     setIsGeneratingWs(true); 
     setGeneratedSheets([]); 
+    setIsDocumentReady(false);
     abortControllerRef.current = new AbortController();
 
-    const splitBatches = wsSubject === "Weekly Pack" ? ["Literacy", "Numeracy"] : [wsSubject];
-    const totalCalls = pupilsToProcess.length * splitBatches.length;
+    const totalCalls = pupilsToProcess.length;
     setWsTotalTasks(totalCalls);
     setWsCompletedTasks(0);
     let completedCount = 0;
@@ -326,82 +326,75 @@ export default function Dashboard() {
         const pGender = targetPupil.gender || "Unspecified";
         const pro = pGender === "Male" ? "he/him" : (pGender === "Female" ? "she/her" : "they/them");
 
-        let pupilAnswers = [];
+        setWsMessage(`⚙️ Synthesizing ${targetPupil.first_name}...`);
 
-        for (const batch of splitBatches) {
-          if (abortControllerRef.current.signal.aborted) throw new Error("Halted by user.");
-          
-          setWsMessage(`⚙️ Synthesizing ${targetPupil.first_name} (${batch})...`);
+        let systemPrompt = `You are an expert UK primary school teacher. 
+        CRITICAL: The child is a ${pGender} (use ${pro} pronouns). Reading ability: "${readLevel}". Adapt all text to this level.
+        Output ONLY raw JSON: { "worksheet": "<html> string", "answers": "<html> string" }. Format HTML nicely using <h2>, <p>, <strong>, and lists. Add multiple <br> and underscores ____________ for writing lines after EVERY question. `;
 
-          let systemPrompt = `You are an expert UK primary school teacher. 
-          CRITICAL: The child is a ${pGender} (use ${pro} pronouns). Reading ability: "${readLevel}". Adapt all text to this level.
-          Output ONLY raw JSON: { "worksheet": "<html> string", "answers": "<html> string" }. Format HTML nicely using <h2>, <p>, <strong>, and lists. Add multiple <br> and underscores ____________ for writing lines after EVERY question.`;
+        if (wsSubject === "Weekly Pack") {
+          const r = getTargetForSubject(pid, "Reading");
+          const m = getTargetForSubject(pid, "Maths");
+          const w = getTargetForSubject(pid, "Writing");
+          const s = getTargetForSubject(pid, "Spelling");
+          const t = getTargetForSubject(pid, "Timestables");
 
-          if (batch === "Literacy") {
-            const r = getTargetForSubject(pid, "Reading");
-            const w = getTargetForSubject(pid, "Writing");
-            const s = getTargetForSubject(pid, "Spelling");
-            systemPrompt += `\nCreate a Literacy Pack separated by <h2> headers:
-            1. Reading: 150-word story about ${interests}. 5 NFER-style comprehension questions on "${r.skill_name}".
-            2. Writing: Target "${w.skill_name}". 1) Identify in sentence, 2) Gap-fill, 3) Write paragraph about ${interests}.
-            3. Spelling: Target "${s.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
-          } else if (batch === "Numeracy") {
-            const m = getTargetForSubject(pid, "Maths");
-            const t = getTargetForSubject(pid, "Timestables");
-            systemPrompt += `\nCreate a Numeracy Pack separated by <h2> headers:
-            1. Maths: Target "${m.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.
-            2. Timestables: Target "${t.skill_name}". 20 randomized questions.`;
-          } else {
-            const tg = getTargetForSubject(pid, wsSubject);
-            if (batch === "Maths") systemPrompt += `\nMaths worksheet for: "${tg.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.`;
-            else if (batch === "Writing") systemPrompt += `\nWriting worksheet for: "${tg.skill_name}". 1) Identify, 2) Apply gap-fill, 3) Paragraph about ${interests}.`;
-            else if (batch === "Reading") systemPrompt += `\nReading worksheet. 150-word text about ${interests}. 5 NFER comprehension questions on: "${tg.skill_name}".`;
-            else if (batch === "Spelling") systemPrompt += `\nSpelling worksheet for: "${tg.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
-            else if (batch === "Timestables") systemPrompt += `\nTimestables sheet focusing on: "${tg.skill_name}". 20 randomized questions.`;
-          }
-
-          try {
-            const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }], generationConfig: { temperature: 0.7 } }),
-              signal: abortControllerRef.current.signal
-            }, 45000); // 45 second absolute timeout
-            
-            const data = await response.json();
-            const rawText = data.candidates[0].content.parts[0].text.trim();
-            const cleanJson = rawText.replace(/```json/g, "").replace(/```html/g, "").replace(/```/g, "");
-            const parsed = JSON.parse(cleanJson);
-            
-            // Incremental Rendering: Push directly to state
-            setGeneratedSheets(prev => [...prev, { 
-              pupilName: targetPupil.first_name, 
-              subject: batch, 
-              worksheet: parsed.worksheet, 
-              answers: parsed.answers 
-            }]);
-
-          } catch (fetchErr) {
-            if (fetchErr.message.includes('AbortError')) throw fetchErr;
-            setGeneratedSheets(prev => [...prev, { 
-              pupilName: targetPupil.first_name, 
-              subject: batch, 
-              worksheet: `<h3>⚠️ Server Timeout or Error for ${batch}</h3><p>${fetchErr.message}</p>`, 
-              answers: "N/A" 
-            }]);
-          }
-
-          completedCount++;
-          setWsCompletedTasks(completedCount);
-
-          if (completedCount < totalCalls) {
-            setWsMessage(`⏳ Pacing API (4.5s) to prevent crash...`);
-            await delay(4500); 
-          }
+          systemPrompt += `Create a complete Weekly Pack separated by <h2> headers in EXACTLY this order:
+          1. Reading: 150-word story about ${interests}. 5 NFER-style comprehension questions on "${r.skill_name}".
+          2. Maths: Target "${m.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.
+          3. Writing: Target "${w.skill_name}". 1) Identify in sentence, 2) Gap-fill, 3) Write paragraph about ${interests}.
+          4. Spelling: Target "${s.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.
+          5. Timestables: Target "${t.skill_name}". 20 randomized questions.`;
+        } else {
+          const tg = getTargetForSubject(pid, wsSubject);
+          if (wsSubject === "Reading") systemPrompt += `Reading worksheet. 150-word text about ${interests}. 5 NFER comprehension questions on: "${tg.skill_name}".`;
+          else if (wsSubject === "Maths") systemPrompt += `Maths worksheet for: "${tg.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.`;
+          else if (wsSubject === "Writing") systemPrompt += `Writing worksheet for: "${tg.skill_name}". 1) Identify, 2) Apply gap-fill, 3) Paragraph about ${interests}.`;
+          else if (wsSubject === "Spelling") systemPrompt += `Spelling worksheet for: "${tg.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
+          else if (wsSubject === "Timestables") systemPrompt += `Timestables sheet focusing on: "${tg.skill_name}". 20 randomized questions.`;
         }
+
+        try {
+          const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }], generationConfig: { temperature: 0.7 } }),
+            signal: abortControllerRef.current.signal
+          }, 60000); 
+          
+          const data = await response.json();
+          const rawText = data.candidates[0].content.parts[0].text.trim();
+          const cleanJson = rawText.replace(/```json/g, "").replace(/```html/g, "").replace(/```/g, "");
+          const parsed = JSON.parse(cleanJson);
+          
+          setGeneratedSheets(prev => [...prev, { 
+            pupilName: targetPupil.first_name, 
+            subject: wsSubject, 
+            worksheet: parsed.worksheet, 
+            answers: parsed.answers 
+          }]);
+
+        } catch (fetchErr) {
+          if (fetchErr.message.includes('AbortError')) throw fetchErr;
+          setGeneratedSheets(prev => [...prev, { 
+            pupilName: targetPupil.first_name, 
+            subject: wsSubject, 
+            worksheet: `<h3>⚠️️ Server Timeout or Error</h3><p>${fetchErr.message}</p>`, 
+            answers: "N/A" 
+          }]);
+        }
+
+        completedCount++;
+        setWsCompletedTasks(completedCount);
         ledger[`${pid}_${wsSubject}_${todayStr}`] = true;
+
+        if (completedCount < totalCalls) {
+          setWsMessage(`⏳ Pacing API (4.5s) to prevent crash...`);
+          await delay(4500); 
+        }
       }
       
       localStorage.setItem("worksheet_ledger", JSON.stringify(ledger));
+      setIsDocumentReady(true);
       setWsMessage("✅ Generation Complete.");
 
     } catch (error) { 
@@ -470,7 +463,6 @@ export default function Dashboard() {
           <div style={{ background: "#fdf4ff", border: "2px solid #f5d0fe", padding: "25px", borderRadius: "8px" }}>
             <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>📄</span> Batch Worksheet Engine</h2>
             
-            {/* NEW: Progress Bar */}
             {(isGeneratingWs || wsCompletedTasks > 0) && (
               <div style={{ marginBottom: "15px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#86198f", fontWeight: "bold", marginBottom: "4px" }}>
@@ -497,7 +489,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <select value={wsSubject} onChange={(e) => setWsSubject(e.target.value)} disabled={isGeneratingWs} style={{ flex: 1, padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px", height: "fit-content" }}>
-                <option value="Weekly Pack">Weekly Pack (Split-Batch)</option><option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
+                <option value="Weekly Pack">Weekly Pack (All 5)</option><option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
               </select>
             </div>
 
@@ -507,7 +499,7 @@ export default function Dashboard() {
               <button onClick={handleGenerateWorksheet} disabled={wsSelectedPupils.length === 0} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: wsSelectedPupils.length === 0 ? "not-allowed" : "pointer", opacity: wsSelectedPupils.length === 0 ? 0.5 : 1 }}>✨ Generate Resources</button>
             )}
 
-            {generatedSheets.length > 0 && !isGeneratingWs && (
+            {isDocumentReady && !isGeneratingWs && generatedSheets.length > 0 && (
                <button onClick={handleRevealDocument} style={{ width: "100%", padding: "12px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", marginTop: "10px", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}><span>✅</span> View Document Ready to Print</button>
             )}
           </div>
@@ -592,7 +584,6 @@ export default function Dashboard() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
-          
           <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
             <div style={{ background: "#fdf4ff", padding: "25px", borderRadius: "8px", border: "1px solid #f5d0fe" }}>
               <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px" }}>📚 Curriculum Skills Manager</h2>
@@ -607,27 +598,18 @@ export default function Dashboard() {
                 <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Map New Skill</button>
               </form>
             </div>
-
             <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
               <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Mapped Skills (Edit/Delete)</h2>
               <div style={{ flex: 1, overflowY: "auto", maxHeight: "250px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
                 {skills.map((skill) => (
                   <div key={skill.id} style={{ padding: "10px", borderBottom: "1px solid #e5e7eb", fontSize: "13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <span style={{ fontWeight: "bold", color: "#6b7280", marginRight: "10px" }}>#{skill.display_order}</span>
-                      <span style={{ fontWeight: "600", color: "#4f46e5", marginRight: "10px" }}>{skill.subject}</span>
-                      <span>{skill.skill_name}</span>
-                    </div>
-                    <div style={{ display: "flex", gap: "10px" }}>
-                      <button onClick={() => setEditingSkill(skill)} style={{ background: "none", border: "none", cursor: "pointer" }}>✏️</button>
-                      <button onClick={() => handleDeleteSkill(skill.id)} style={{ background: "none", border: "none", cursor: "pointer" }}>🗑️</button>
-                    </div>
+                    <div><span style={{ fontWeight: "bold", color: "#6b7280", marginRight: "10px" }}>#{skill.display_order}</span><span style={{ fontWeight: "600", color: "#4f46e5", marginRight: "10px" }}>{skill.subject}</span><span>{skill.skill_name}</span></div>
+                    <div style={{ display: "flex", gap: "10px" }}><button onClick={() => setEditingSkill(skill)} style={{ background: "none", border: "none", cursor: "pointer" }}>✏️</button><button onClick={() => handleDeleteSkill(skill.id)} style={{ background: "none", border: "none", cursor: "pointer" }}>🗑️</button></div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-
           <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", height: "fit-content" }}>
             <h2 style={{ marginTop: 0, color: "#374151" }}>⚙ AI System Config</h2>
             <form onSubmit={handleSaveKey} style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>

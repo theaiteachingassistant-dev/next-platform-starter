@@ -188,4 +188,188 @@ export default function Dashboard() {
       
       // 4. Parse the AI's Response
       const rawText = data.candidates[0].content.parts[0].text.trim();
-      const cleanJson = rawText.replace(/```json/g, "").replace(/
+      const cleanJson = rawText.replace(/```json/g, "").replace(/```/g, ""); // Strip markdown if AI disobeys
+      const aiResult = JSON.parse(cleanJson);
+
+      if (!aiResult.pupil_id || !aiResult.skill_id) {
+        throw new Error("AI could not find a matching pupil or skill in your database.");
+      }
+
+      setNoteMessage("🔐 Routing to secure database...");
+
+      // 5. Upsert to Supabase
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      
+      const { error: dbError } = await supabase.from("pupil_progress").upsert(
+        { 
+          user_id: userId,
+          pupil_id: aiResult.pupil_id,
+          skill_id: aiResult.skill_id,
+          status: aiResult.status
+        },
+        { onConflict: 'pupil_id,skill_id' } // Overwrites if the pupil already has a status for this skill
+      );
+
+      if (dbError) throw dbError;
+
+      setNoteMessage(`✅ Success! Updated database: ${aiResult.status}`);
+      setNoteText("");
+      setTimeout(() => setNoteMessage(""), 4000);
+
+    } catch (error) {
+      console.error(error);
+      setNoteMessage(`❌ Routing Failed: ${error.message}`);
+    } finally {
+      setIsProcessingNote(false);
+    }
+  };
+
+  if (!isLoaded) return null;
+
+  return (
+    <div style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto", paddingBottom: "100px" }}>
+      
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px", marginBottom: "30px" }}>
+        <div>
+          <h1 style={{ margin: 0, color: "#111827" }}>Command Center</h1>
+          <p style={{ margin: "5px 0 0 0", color: "#6b7280", fontSize: "14px", fontWeight: "500" }}>{dbStatus}</p>
+        </div>
+        <UserButton />
+      </div>
+
+      {/* Row 1: Voice Routing Engine (NEW) */}
+      <div style={{ background: "#f0f9ff", border: "2px solid #bae6fd", padding: "25px", borderRadius: "8px", marginBottom: "30px" }}>
+        <h2 style={{ marginTop: 0, color: "#0369a1", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>🎙️</span> Voice Routing AI Note-Taker</h2>
+        <p style={{ fontSize: "14px", color: "#0c4a6e", marginBottom: "20px" }}>Dictate or type your note. The AI will analyze the text, find the correct pupil, find the specific skill, and update their secure digital file automatically.</p>
+        
+        <div style={{ display: "flex", gap: "15px", alignItems: "flex-start" }}>
+          <div style={{ flex: 1 }}>
+            <textarea 
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              disabled={isProcessingNote}
+              placeholder="e.g. 'Leo is struggling with 3-digit Addition today. He needs more practice.' OR 'Sarah absolutely nailed identifying nouns.'"
+              style={{ width: "100%", height: "100px", padding: "15px", border: "1px solid #7dd3fc", borderRadius: "8px", resize: "none", fontSize: "15px", fontFamily: "inherit" }}
+            />
+            
+            <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
+              <button 
+                onClick={toggleRecording}
+                disabled={isProcessingNote}
+                style={{ padding: "12px 20px", background: isRecording ? "#ef4444" : "#e0f2fe", color: isRecording ? "white" : "#0284c7", border: "1px solid #7dd3fc", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
+              >
+                {isRecording ? "🔴 Stop Recording" : "🎤 Tap to Dictate"}
+              </button>
+              
+              <button 
+                onClick={handleProcessNote}
+                disabled={isProcessingNote || !noteText.trim()}
+                style={{ flex: 1, padding: "12px", background: "#0ea5e9", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: isProcessingNote || !noteText.trim() ? "not-allowed" : "pointer", opacity: isProcessingNote || !noteText.trim() ? 0.6 : 1 }}
+              >
+                {isProcessingNote ? "Processing with AI..." : "✨ Process & Route Note"}
+              </button>
+            </div>
+            
+            {noteMessage && <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: noteMessage.includes("❌") ? "#ef4444" : "#0369a1" }}>{noteMessage}</p>}
+          </div>
+        </div>
+      </div>
+
+      {/* Row 2: Pupils */}
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
+        <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
+          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "20px" }}>Pupil Onboarding</h2>
+          <form onSubmit={handleAddPupil}>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "15px", marginBottom: "20px" }}>
+              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="First Name" />
+              <input type="text" value={lastInitial} onChange={(e) => setLastInitial(e.target.value.substring(0, 1))} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="Last Initial (e.g. J)" maxLength={1} />
+            </div>
+            <div style={{ marginBottom: "25px", display: "flex", gap: "20px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isSend} onChange={(e) => setIsSend(e.target.checked)} disabled={isPupilSubmitting} /> SEND</label>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isEal} onChange={(e) => setIsEal(e.target.checked)} disabled={isPupilSubmitting} /> EAL</label>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isPp} onChange={(e) => setIsPp(e.target.checked)} disabled={isPupilSubmitting} /> PP</label>
+            </div>
+            <button type="submit" disabled={isPupilSubmitting} style={{ width: "100%", padding: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isPupilSubmitting ? "Saving..." : "Add Pupil"}</button>
+            {pupilMessage && <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: pupilMessage.includes("❌") ? "#ef4444" : "#10b981", textAlign: "center" }}>{pupilMessage}</p>}
+          </form>
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
+          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Active Cohort</h2>
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: "250px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
+            {pupils.length === 0 ? <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: "14px" }}>No pupils found.</div> : 
+              pupils.map((pupil, i) => (
+                <div key={i} style={{ background: "white", padding: "10px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: "4px", marginBottom: "5px", border: "1px solid #e5e7eb", fontSize: "14px" }}>
+                  <strong>{pupil.first_name} {pupil.last_initial}.</strong>
+                  <div style={{ display: "flex", gap: "4px" }}>
+                    {pupil.is_send && <span style={{ background: "#fef3c7", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>SEND</span>}
+                    {pupil.is_pp && <span style={{ background: "#dbeafe", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>PP</span>}
+                  </div>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* Row 3: Curriculum Manager */}
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
+        <div style={{ background: "#fdf4ff", padding: "25px", borderRadius: "8px", border: "1px solid #f5d0fe" }}>
+          <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>📚</span> Curriculum Skills Manager</h2>
+          <p style={{ fontSize: "14px", color: "#a21caf", marginBottom: "20px" }}>Map your spreadsheet columns here. The <strong>Order Number</strong> dictates left-to-right progression.</p>
+          
+          <form onSubmit={handleAddSkill}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: "10px", marginBottom: "20px" }}>
+              <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} disabled={isSkillSubmitting} style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }}>
+                <option value="Maths">Maths</option>
+                <option value="Writing">Writing</option>
+                <option value="Reading">Reading</option>
+                <option value="Spelling">Spelling</option>
+                <option value="Timestables">Timestables</option>
+              </select>
+              <input type="text" value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} disabled={isSkillSubmitting} placeholder="e.g. 3-digit Addition" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} />
+              <input type="number" value={newDisplayOrder} onChange={(e) => setNewDisplayOrder(e.target.value)} disabled={isSkillSubmitting} placeholder="Order (1, 2, 3...)" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} min="1" />
+            </div>
+            <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isSkillSubmitting ? "Mapping..." : "Map New Skill"}</button>
+            {skillMessage && <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: skillMessage.includes("❌") ? "#ef4444" : "#10b981", textAlign: "center" }}>{skillMessage}</p>}
+          </form>
+        </div>
+
+        <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
+          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Mapped Skills</h2>
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: "200px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
+            {skills.length === 0 ? <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: "14px" }}>No skills mapped yet.</div> : 
+              skills.map((skill, i) => (
+                <div key={i} style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "13px" }}>
+                  <span style={{ fontWeight: "bold", color: "#6b7280", marginRight: "10px" }}>#{skill.display_order}</span>
+                  <span style={{ fontWeight: "600", color: "#4f46e5", marginRight: "10px" }}>{skill.subject}</span>
+                  <span>{skill.skill_name}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </div>
+
+      {/* Row 4: BYOK Settings */}
+      <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px" }}>
+        <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px" }}><span>⚙</span> AI System Configuration (BYOK)</h2>
+        {isKeySaved ? (
+          <div style={{ display: "inline-block", background: "#ecfdf5", padding: "15px 20px", borderRadius: "6px", border: "1px solid #a7f3d0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <span style={{ fontSize: "18px" }}>✅</span>
+              <div><div style={{ fontWeight: "600", color: "#065f46" }}>API Key Active</div></div>
+              <button onClick={handleClearKey} style={{ marginLeft: "20px", padding: "6px 12px", background: "white", color: "#ef4444", border: "1px solid #fca5a5", borderRadius: "4px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}>Disconnect</button>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSaveKey} style={{ display: "flex", gap: "10px", maxWidth: "500px" }}>
+            <input type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="Paste Gemini API key..." style={{ flex: 1, padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} required />
+            <button type="submit" style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Save Locally</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}

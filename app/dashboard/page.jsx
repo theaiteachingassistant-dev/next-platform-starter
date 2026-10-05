@@ -31,27 +31,18 @@ export default function Dashboard() {
   const [geminiKey, setGeminiKey] = useState("");
   const [isKeySaved, setIsKeySaved] = useState(false);
 
-  // Network Fetch: Retrieves locked data for the active teacher
+  // Network Fetch
   const fetchDashboardData = useCallback(async () => {
     if (!isLoaded || !isSignedIn) return;
     try {
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       
-      // Fetch Pupils
-      const { data: pupilsData, error: pupilsError } = await supabase
-        .from("pupils")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const { data: pupilsData, error: pupilsError } = await supabase.from("pupils").select("*").order("created_at", { ascending: false });
       if (pupilsError) throw pupilsError;
       setPupils(pupilsData || []);
 
-      // Fetch Skills
-      const { data: skillsData, error: skillsError } = await supabase
-        .from("curriculum_skills")
-        .select("*")
-        .order("subject", { ascending: true })
-        .order("display_order", { ascending: true });
+      const { data: skillsData, error: skillsError } = await supabase.from("curriculum_skills").select("*").order("subject", { ascending: true }).order("display_order", { ascending: true });
       if (skillsError) throw skillsError;
       setSkills(skillsData || []);
       
@@ -71,90 +62,51 @@ export default function Dashboard() {
   // Handlers
   const handleAddPupil = async (e) => {
     e.preventDefault();
-    if (!firstName || !lastInitial) {
-      setPupilMessage("❌ First name and last initial required.");
-      return;
-    }
-    setIsPupilSubmitting(true);
-    setPupilMessage("Saving...");
-
+    if (!firstName || !lastInitial) { setPupilMessage("❌ First name and last initial required."); return; }
+    setIsPupilSubmitting(true); setPupilMessage("Saving...");
     try {
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
-      
-      const { error } = await supabase.from("pupils").insert({
-        user_id: userId, 
-        first_name: firstName,
-        last_initial: lastInitial.toUpperCase(), 
-        is_send: isSend,
-        is_eal: isEal,
-        is_pp: isPp
-      });
-
+      const { error } = await supabase.from("pupils").insert({ user_id: userId, first_name: firstName, last_initial: lastInitial.toUpperCase(), is_send: isSend, is_eal: isEal, is_pp: isPp });
       if (error) throw error;
       setPupilMessage("✅ Pupil added.");
       setFirstName(""); setLastInitial(""); setIsSend(false); setIsEal(false); setIsPp(false);
       fetchDashboardData();
       setTimeout(() => setPupilMessage(""), 3000);
-    } catch (error) {
-      setPupilMessage(`❌ Error: ${error.message}`);
-    } finally {
-      setIsPupilSubmitting(false);
-    }
+    } catch (error) { setPupilMessage(`❌ Error: ${error.message}`); } 
+    finally { setIsPupilSubmitting(false); }
   };
 
   const handleAddSkill = async (e) => {
     e.preventDefault();
-    if (!newSkillName) {
-      setSkillMessage("❌ Skill name required.");
-      return;
-    }
-    setIsSkillSubmitting(true);
-    setSkillMessage("Saving...");
-
+    if (!newSkillName) { setSkillMessage("❌ Skill name required."); return; }
+    setIsSkillSubmitting(true); setSkillMessage("Saving...");
     try {
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
-      
-      const { error } = await supabase.from("curriculum_skills").insert({
-        user_id: userId, 
-        subject: newSubject,
-        skill_name: newSkillName,
-        display_order: parseInt(newDisplayOrder)
-      });
-
+      const { error } = await supabase.from("curriculum_skills").insert({ user_id: userId, subject: newSubject, skill_name: newSkillName, display_order: parseInt(newDisplayOrder) });
       if (error) throw error;
       setSkillMessage("✅ Skill mapped.");
-      setNewSkillName("");
-      setNewDisplayOrder((prev) => parseInt(prev) + 1); // Auto-increments for fast left-to-right entry
+      setNewSkillName(""); setNewDisplayOrder((prev) => parseInt(prev) + 1); 
       fetchDashboardData();
       setTimeout(() => setSkillMessage(""), 3000);
-    } catch (error) {
-      setSkillMessage(`❌ Error: ${error.message}`);
-    } finally {
-      setIsSkillSubmitting(false);
-    }
+    } catch (error) { setSkillMessage(`❌ Error: ${error.message}`); } 
+    finally { setIsSkillSubmitting(false); }
   };
 
   const handleSaveKey = (e) => {
     e.preventDefault();
     if (!geminiKey.trim()) return;
     localStorage.setItem("gemini_api_key", geminiKey.trim());
-    setIsKeySaved(true);
-    setGeminiKey(""); 
+    setIsKeySaved(true); setGeminiKey(""); 
   };
-
-  const handleClearKey = () => {
-    localStorage.removeItem("gemini_api_key");
-    setIsKeySaved(false);
-  };
+  const handleClearKey = () => { localStorage.removeItem("gemini_api_key"); setIsKeySaved(false); };
 
   if (!isLoaded) return null;
 
   return (
     <div style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto", paddingBottom: "100px" }}>
       
-      {/* Header Area */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px", marginBottom: "30px" }}>
         <div>
           <h1 style={{ margin: 0, color: "#111827" }}>Command Center</h1>
@@ -163,9 +115,8 @@ export default function Dashboard() {
         <UserButton />
       </div>
 
-      {/* Row 1: Pupils & BYOK */}
+      {/* Row 1: Pupils */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
-        
         <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "20px" }}>Pupil Onboarding</h2>
           <form onSubmit={handleAddPupil}>
@@ -178,9 +129,7 @@ export default function Dashboard() {
               <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isEal} onChange={(e) => setIsEal(e.target.checked)} disabled={isPupilSubmitting} /> EAL</label>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isPp} onChange={(e) => setIsPp(e.target.checked)} disabled={isPupilSubmitting} /> PP</label>
             </div>
-            <button type="submit" disabled={isPupilSubmitting} style={{ width: "100%", padding: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>
-              {isPupilSubmitting ? "Saving..." : "Add Pupil"}
-            </button>
+            <button type="submit" disabled={isPupilSubmitting} style={{ width: "100%", padding: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isPupilSubmitting ? "Saving..." : "Add Pupil"}</button>
             {pupilMessage && <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: pupilMessage.includes("❌") ? "#ef4444" : "#10b981", textAlign: "center" }}>{pupilMessage}</p>}
           </form>
         </div>
@@ -201,12 +150,10 @@ export default function Dashboard() {
             }
           </div>
         </div>
-
       </div>
 
       {/* Row 2: Curriculum Manager */}
       <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
-        
         <div style={{ background: "#fdf4ff", padding: "25px", borderRadius: "8px", border: "1px solid #f5d0fe" }}>
           <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>📚</span> Curriculum Skills Manager</h2>
           <p style={{ fontSize: "14px", color: "#a21caf", marginBottom: "20px" }}>Map your spreadsheet columns here. The <strong>Order Number</strong> dictates left-to-right progression.</p>
@@ -217,13 +164,14 @@ export default function Dashboard() {
                 <option value="Maths">Maths</option>
                 <option value="Writing">Writing</option>
                 <option value="Reading">Reading</option>
+                {/* NEW OPTIONS ADDED HERE */}
+                <option value="Spelling">Spelling</option>
+                <option value="Timestables">Timestables</option>
               </select>
               <input type="text" value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} disabled={isSkillSubmitting} placeholder="e.g. 3-digit Addition" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} />
               <input type="number" value={newDisplayOrder} onChange={(e) => setNewDisplayOrder(e.target.value)} disabled={isSkillSubmitting} placeholder="Order (1, 2, 3...)" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} min="1" />
             </div>
-            <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>
-              {isSkillSubmitting ? "Mapping..." : "Map New Skill"}
-            </button>
+            <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isSkillSubmitting ? "Mapping..." : "Map New Skill"}</button>
             {skillMessage && <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: skillMessage.includes("❌") ? "#ef4444" : "#10b981", textAlign: "center" }}>{skillMessage}</p>}
           </form>
         </div>
@@ -242,7 +190,6 @@ export default function Dashboard() {
             }
           </div>
         </div>
-
       </div>
 
       {/* Row 3: BYOK Settings */}
@@ -263,7 +210,6 @@ export default function Dashboard() {
           </form>
         )}
       </div>
-
     </div>
   );
 }

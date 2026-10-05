@@ -9,11 +9,11 @@ export default function Dashboard() {
   // Database State
   const [pupils, setPupils] = useState([]);
   const [skills, setSkills] = useState([]);
-  const [progress, setProgress] = useState([]); // NEW: Tracks the yes/no status
+  const [progress, setProgress] = useState([]); 
   const [dbStatus, setDbStatus] = useState("Connecting to secure database...");
   
   // UI State for Matrix
-  const [expandedPupil, setExpandedPupil] = useState(null); // Tracks which pupil profile is open
+  const [expandedPupil, setExpandedPupil] = useState(null);
 
   // Pupil Form State
   const [firstName, setFirstName] = useState("");
@@ -56,7 +56,6 @@ export default function Dashboard() {
       if (skillsError) throw skillsError;
       setSkills(skillsData || []);
 
-      // Fetch the actual yes/no progress mapped to these pupils
       const { data: progressData, error: progressError } = await supabase.from("pupil_progress").select("*");
       if (progressError) throw progressError;
       setProgress(progressData || []);
@@ -74,9 +73,8 @@ export default function Dashboard() {
     if (savedKey) setIsKeySaved(true);
   }, [fetchDashboardData]);
 
-  // Manual Matrix Click Handler (Overrides Voice)
+  // Manual Matrix Click Handler
   const toggleSkillStatus = async (pupilId, skillId, currentStatus) => {
-    // Traffic Light Cycle: Red(Not Yet) -> Amber(Practising) -> Green(Achieved) -> Red(Not Yet)
     const cycle = {
       'Not Yet': 'Practising',
       'Practising': 'Achieved',
@@ -91,7 +89,7 @@ export default function Dashboard() {
         { user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus },
         { onConflict: 'pupil_id,skill_id' }
       );
-      fetchDashboardData(); // Hydrate the UI instantly to change the color
+      fetchDashboardData(); 
     } catch (error) {
       console.error("Failed to update status manually:", error);
     }
@@ -182,13 +180,13 @@ export default function Dashboard() {
         { "pupil_id": "the-uuid-of-the-pupil", "skill_id": "the-uuid-of-the-skill", "status": "Practising" }
       `;
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+      // UPDATED: Changed from gemini-1.5-flash to gemini-2.5-flash
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
       });
 
-      // ERROR EXTRACTION: Pull the exact Google error if it fails
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(`Google AI: ${errorData.error?.message || response.statusText}`);
@@ -214,7 +212,7 @@ export default function Dashboard() {
 
       setNoteMessage(`✅ Success! Updated database: ${aiResult.status}`);
       setNoteText("");
-      fetchDashboardData(); // Update the visual matrix
+      fetchDashboardData(); 
       setTimeout(() => setNoteMessage(""), 4000);
 
     } catch (error) {
@@ -297,7 +295,6 @@ export default function Dashboard() {
                 return (
                   <div key={pupil.id} style={{ border: "1px solid #e5e7eb", marginBottom: "8px", borderRadius: "6px", overflow: "hidden", background: "white" }}>
                     
-                    {/* Collapsed Header */}
                     <div onClick={() => setExpandedPupil(isExpanded ? null : pupil.id)} style={{ padding: "12px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div style={{ fontWeight: "600", fontSize: "15px" }}>{pupil.first_name} {pupil.last_initial}.</div>
                       <div style={{ display: "flex", gap: "6px" }}>
@@ -306,7 +303,6 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Expanded Matrix */}
                     {isExpanded && (
                       <div style={{ padding: "15px", background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
                         {skills.length === 0 ? (
@@ -314,13 +310,11 @@ export default function Dashboard() {
                         ) : (
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                             {skills.map((skill) => {
-                              // Find this pupil's status for this exact skill
                               const currentStatus = progress.find(pr => pr.pupil_id === pupil.id && pr.skill_id === skill.id)?.status || 'Not Yet';
                               
-                              // Determine Traffic Light Colors
-                              let bg = "#fee2e2"; let col = "#991b1b"; let border = "#f87171"; // Red (Not Yet)
-                              if (currentStatus === 'Practising') { bg = "#fef3c7"; col = "#92400e"; border = "#fbbf24"; } // Amber (Practising)
-                              if (currentStatus === 'Achieved') { bg = "#dcfce3"; col = "#166534"; border = "#4ade80"; } // Green (Achieved)
+                              let bg = "#fee2e2"; let col = "#991b1b"; let border = "#f87171"; 
+                              if (currentStatus === 'Practising') { bg = "#fef3c7"; col = "#92400e"; border = "#fbbf24"; } 
+                              if (currentStatus === 'Achieved') { bg = "#dcfce3"; col = "#166534"; border = "#4ade80"; } 
                               
                               return (
                                 <button 

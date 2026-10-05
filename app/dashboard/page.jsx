@@ -14,6 +14,8 @@ const READING_LEVELS = [
   "Year 6 Working Towards", "Year 6 Expected", "Year 6 Greater Depth"
 ];
 
+const ANSWER_KEY_DELIMITER = "|||START_OF_ANSWERS|||";
+
 export default function Dashboard() {
   const { getToken, isLoaded, isSignedIn, userId } = useAuth(); 
   
@@ -88,8 +90,10 @@ export default function Dashboard() {
       const { data: progressData } = await supabase.from("pupil_progress").select("*");
       setProgress(progressData || []);
       
-      setDbStatus(`✅ Secure Connection. ${pupilsData?.length || 0} Pupils | ${skillsData?.length || 0} Skills`);
-    } catch (error) { setDbStatus("❌ Database Connection Failed."); }
+      setDbStatus(`Secure Connection Active. ${pupilsData?.length || 0} Pupils | ${skillsData?.length || 0} Skills`);
+    } catch { 
+      setDbStatus("Database Connection Failed."); 
+    }
   }, [getToken, isLoaded, isSignedIn]);
 
   useEffect(() => {
@@ -115,7 +119,9 @@ export default function Dashboard() {
       const supabase = createClerkSupabaseClient(token);
       await supabase.from("pupil_progress").upsert({ user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus }, { onConflict: 'pupil_id,skill_id' });
       fetchDashboardData(); 
-    } catch (error) { console.error(error); }
+    } catch (error) { 
+      console.error(error); 
+    }
   };
 
   const handleAddPupil = async (e) => {
@@ -131,12 +137,16 @@ export default function Dashboard() {
         gender: gender, is_send: isSend, is_eal: isEal, is_pp: isPp, 
         interests: combinedInterests, reading_level: readingLevel
       });
-      setPupilMessage("✅ Pupil added.");
+      setPupilMessage("Pupil added.");
       setFirstName(""); setLastInitial(""); setGender("Male"); setIsSend(false); setIsEal(false); setIsPp(false); 
       setInterestOne(""); setInterestTwo(""); setInterestThree(""); setReadingLevel("Year 3 Expected");
       fetchDashboardData();
       setTimeout(() => setPupilMessage(""), 3000);
-    } catch (error) { setPupilMessage(`❌ Error: ${error.message}`); } finally { setIsPupilSubmitting(false); }
+    } catch (error) { 
+      setPupilMessage(`Error: ${error.message}`); 
+    } finally { 
+      setIsPupilSubmitting(false); 
+    }
   };
 
   const handleUpdatePupil = async (e) => {
@@ -152,7 +162,11 @@ export default function Dashboard() {
       }).eq('id', editingPupil.id);
       fetchDashboardData();
       setEditingPupil(null);
-    } catch (error) { console.error(error); } finally { setIsUpdatingPupil(false); }
+    } catch (error) { 
+      console.error(error); 
+    } finally { 
+      setIsUpdatingPupil(false); 
+    }
   };
 
   const handleDeletePupil = async (id) => {
@@ -162,7 +176,9 @@ export default function Dashboard() {
       const supabase = createClerkSupabaseClient(token);
       await supabase.from("pupils").delete().eq('id', id);
       fetchDashboardData();
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   const handleAddSkill = async (e) => {
@@ -173,11 +189,15 @@ export default function Dashboard() {
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       await supabase.from("curriculum_skills").insert({ user_id: userId, subject: newSubject, skill_name: newSkillName, display_order: parseInt(newDisplayOrder) });
-      setSkillMessage("✅ Skill mapped.");
+      setSkillMessage("Skill mapped.");
       setNewSkillName(""); setNewDisplayOrder((prev) => parseInt(prev) + 1); 
       fetchDashboardData();
       setTimeout(() => setSkillMessage(""), 3000);
-    } catch (error) { setSkillMessage(`❌ Error: ${error.message}`); } finally { setIsSkillSubmitting(false); }
+    } catch (error) { 
+      setSkillMessage(`Error: ${error.message}`); 
+    } finally { 
+      setIsSkillSubmitting(false); 
+    }
   };
 
   const handleUpdateSkill = async (e) => {
@@ -188,7 +208,11 @@ export default function Dashboard() {
       const supabase = createClerkSupabaseClient(token);
       await supabase.from("curriculum_skills").update({ subject: editingSkill.subject, skill_name: editingSkill.skill_name, display_order: parseInt(editingSkill.display_order) }).eq('id', editingSkill.id);
       fetchDashboardData(); setEditingSkill(null);
-    } catch (error) {} finally { setIsUpdatingSkill(false); }
+    } catch (error) {
+      console.error(error);
+    } finally { 
+      setIsUpdatingSkill(false); 
+    }
   };
 
   const handleDeleteSkill = async (id) => {
@@ -198,7 +222,9 @@ export default function Dashboard() {
       const supabase = createClerkSupabaseClient(token);
       await supabase.from("curriculum_skills").delete().eq('id', id);
       fetchDashboardData();
-    } catch (error) {}
+    } catch (error) {
+      console.error(error);
+    }
   };
 
   const handleSaveKey = (e) => { e.preventDefault(); if (!geminiKey.trim()) return; localStorage.setItem("gemini_api_key", geminiKey.trim()); setIsKeySaved(true); setGeminiKey(""); };
@@ -206,7 +232,7 @@ export default function Dashboard() {
 
   const toggleRecording = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setNoteMessage("❌ Voice not supported."); return; }
+    if (!SpeechRecognition) { setNoteMessage("Voice dictation is not supported in this browser."); return; }
     if (isRecording) { setIsRecording(false); return; }
     const recognition = new SpeechRecognition();
     recognition.continuous = false; recognition.interimResults = false;
@@ -217,12 +243,12 @@ export default function Dashboard() {
   };
 
   const executeDatabaseRoute = async (payload) => {
-    setNoteMessage("🔐 Routing to database...");
+    setNoteMessage("Routing to database...");
     const token = await getToken({ template: "supabase" });
     const supabase = createClerkSupabaseClient(token);
     await supabase.from("pupil_progress").upsert({ user_id: userId, pupil_id: payload.pupil_id, skill_id: payload.skill_id, status: payload.status }, { onConflict: 'pupil_id,skill_id' });
     setNoteText(""); fetchDashboardData(); setPendingVoiceRoute(null);
-    setNoteMessage(`✅ Updated: ${payload.matched_pupil} - ${payload.matched_skill} (${payload.status})`);
+    setNoteMessage(`Updated: ${payload.matched_pupil} - ${payload.matched_skill} (${payload.status})`);
     setTimeout(() => setNoteMessage(""), 4000);
   };
 
@@ -250,12 +276,29 @@ export default function Dashboard() {
       } else {
         await executeDatabaseRoute(aiResult);
       }
-    } catch (error) { setNoteMessage("❌ Routing Failed."); } finally { setIsProcessingNote(false); }
+    } catch { 
+      setNoteMessage("Routing failed."); 
+    } finally { 
+      setIsProcessingNote(false); 
+    }
   };
 
   const delay = (ms) => new Promise(res => setTimeout(res, ms));
 
-  // Custom fetch with absolute 60s timeout for massive single payloads
+  const cleanWorksheetMarkup = (rawHtml) => {
+    if (!rawHtml) return "";
+    let clean = rawHtml;
+    // Strip accidental markdown fences
+    clean = clean.replace(/```html/gi, "").replace(/```/g, "");
+    // Remove leaked answer asterisks or stray markdown formatting
+    clean = clean.replace(/\*\*(.*?)\*\*/g, "$1");
+    clean = clean.replace(/\*(.*?)\*/g, "$1");
+    // Standardize write lines
+    clean = clean.replace(/\[FULL_LINE\]/gi, '<p class="write-line"></p>');
+    clean = clean.replace(/\[ANSWER_LINE\]/gi, '<span class="short-line"></span>');
+    return clean;
+  };
+
   const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -282,12 +325,12 @@ export default function Dashboard() {
   };
 
   // ==========================================
-  // WORKSHEET ENGINE (SINGLE MEGA-PROMPT PER PUPIL)
+  // WORKSHEET ENGINE (ROBUST DELIMITER PARSER)
   // ==========================================
   const handleGenerateWorksheet = async () => {
-    if (wsSelectedPupils.length === 0) { setWsMessage("❌ Select at least one pupil."); return; }
+    if (wsSelectedPupils.length === 0) { setWsMessage("Select at least one pupil."); return; }
     const apiKey = localStorage.getItem("gemini_api_key");
-    if (!apiKey) { setWsMessage("❌ Missing API Key in BYOK settings."); return; }
+    if (!apiKey) { setWsMessage("Missing API Key in BYOK settings."); return; }
 
     const ledger = JSON.parse(localStorage.getItem("worksheet_ledger") || "{}");
     const todayStr = new Date().toISOString().split('T')[0];
@@ -296,7 +339,7 @@ export default function Dashboard() {
     for (const pid of wsSelectedPupils) {
       const pName = pupils.find(p => p.id === pid)?.first_name;
       if (ledger[`${pid}_${wsSubject}_${todayStr}`]) {
-        if (window.confirm(`⚠️ You already generated a ${wsSubject} sheet for ${pName} today. Force Regenerate?`)) {
+        if (window.confirm(`You already generated a ${wsSubject} sheet for ${pName} today. Force Regenerate?`)) {
           pupilsToProcess.push(pid);
         }
       } else {
@@ -326,11 +369,17 @@ export default function Dashboard() {
         const pGender = targetPupil.gender || "Unspecified";
         const pro = pGender === "Male" ? "he/him" : (pGender === "Female" ? "she/her" : "they/them");
 
-        setWsMessage(`⚙️ Synthesizing ${targetPupil.first_name}...`);
+        setWsMessage(`Synthesizing ${targetPupil.first_name}...`);
 
-        let systemPrompt = `You are an expert UK primary school teacher. 
-        CRITICAL: The child is a ${pGender} (use ${pro} pronouns). Reading ability: "${readLevel}". Adapt all text to this level.
-        Output ONLY raw JSON: { "worksheet": "<html> string", "answers": "<html> string" }. Format HTML nicely using <h2>, <p>, <strong>, and lists. Instead of adding blank <br> tags or underscores for writing lines, use the class <p class="write-line">...</p> to designate lines for the student to write their answer. `;
+        let systemPrompt = `You are an expert UK primary school teacher.
+CRITICAL ANTI-CHEAT RULE: Never bold, underline, italicize, or indicate the correct answers anywhere in the worksheet body. The pupil must identify them independently.
+CRITICAL FORMATTING: Output pure HTML. Do not wrap output in JSON. Do not use markdown codeblocks. 
+The child is ${pGender} (use ${pro} pronouns). Reading ability: "${readLevel}". Adapt all vocabulary to match this reading level.
+To provide writing space under questions, add: <p class="write-line"></p>. Keep line counts strictly proportional and never excessive.
+
+After the worksheet content is completely finished, print the exact text delimiter:
+${ANSWER_KEY_DELIMITER}
+Immediately after the delimiter, write the comprehensive Answer Key in clear HTML format using <h3>, <p>, and ordered lists.`;
 
         if (wsSubject === "Weekly Pack") {
           const r = getTargetForSubject(pid, "Reading");
@@ -338,18 +387,35 @@ export default function Dashboard() {
           const w = getTargetForSubject(pid, "Writing");
           const s = getTargetForSubject(pid, "Spelling");
 
-          systemPrompt += `Create a complete Weekly Pack separated by <h2> headers in EXACTLY this order:
-          1. Reading: 150-word story about ${interests}. 5 NFER-style comprehension questions on "${r.skill_name}".
-          2. Maths: Target "${m.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.
-          3. Writing: Target "${w.skill_name}". 1) Identify in sentence, 2) Gap-fill, 3) Write paragraph about ${interests}.
-          4. Spelling: Target "${s.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
+          systemPrompt += `
+
+Create a complete Weekly Pack in EXACTLY this section order:
+<div class="worksheet-section">
+  <h2>1. Reading Comprehension</h2>
+  <p>Text Focus: ${interests}. Target skill: ${r.skill_name}. Provide an engaging 150-word story. Follow with 5 NFER-style comprehension questions.</p>
+</div>
+
+<div class="worksheet-section">
+  <h2>2. Mathematics</h2>
+  <p>Target skill: ${m.skill_name}. Provide 5 arithmetic calculations followed by 3 word problems contextualized around ${interests}.</p>
+</div>
+
+<div class="worksheet-section">
+  <h2>3. English Writing</h2>
+  <p>Target skill: ${w.skill_name}. Structure in 3 parts: Part 1 Identify (find the skill in sample sentences), Part 2 Apply (gap-fill tasks), Part 3 Independent Application (paragraph writing brief themed around ${interests}).</p>
+</div>
+
+<div class="worksheet-section">
+  <h2>4. Spelling</h2>
+  <p>Target skill: ${s.skill_name}. Provide 8 words broken down phonetically for pronunciation practice, each with a line for reproduction.</p>
+</div>`;
         } else {
           const tg = getTargetForSubject(pid, wsSubject);
-          if (wsSubject === "Reading") systemPrompt += `Reading worksheet. 150-word text about ${interests}. 5 NFER comprehension questions on: "${tg.skill_name}".`;
-          else if (wsSubject === "Maths") systemPrompt += `Maths worksheet for: "${tg.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.`;
-          else if (wsSubject === "Writing") systemPrompt += `Writing worksheet for: "${tg.skill_name}". 1) Identify, 2) Apply gap-fill, 3) Paragraph about ${interests}.`;
-          else if (wsSubject === "Spelling") systemPrompt += `Spelling worksheet for: "${tg.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
-          else if (wsSubject === "Timestables") systemPrompt += `Timestables sheet focusing on: "${tg.skill_name}". 20 randomized questions.`;
+          if (wsSubject === "Reading") systemPrompt += `\nCreate a Reading Comprehension sheet. 150-word text themed around ${interests}. 5 NFER-style comprehension questions focusing on: "${tg.skill_name}".`;
+          else if (wsSubject === "Maths") systemPrompt += `\nCreate a Maths worksheet for: "${tg.skill_name}". 5 arithmetic fluency questions, 3 word problems themed around ${interests}.`;
+          else if (wsSubject === "Writing") systemPrompt += `\nCreate an English Writing worksheet for: "${tg.skill_name}". 1) Identify in sentences, 2) Apply in gap-fills, 3) Write a paragraph themed around ${interests}.`;
+          else if (wsSubject === "Spelling") systemPrompt += `\nCreate a Spelling worksheet for: "${tg.skill_name}". 8 words broken down phonetically with dedicated write lines.`;
+          else if (wsSubject === "Timestables") systemPrompt += `\nCreate a Timestables worksheet focusing on: "${tg.skill_name}". 20 randomized fluency questions.`;
         }
 
         try {
@@ -360,15 +426,22 @@ export default function Dashboard() {
           }, 60000); 
           
           const data = await response.json();
-          const rawText = data.candidates[0].content.parts[0].text.trim();
-          const cleanJson = rawText.replace(/```json/g, "").replace(/```html/g, "").replace(/```/g, "");
-          const parsed = JSON.parse(cleanJson);
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
           
+          let worksheetBody = rawText;
+          let answerKeyBody = "Answer key not generated.";
+
+          if (rawText.includes(ANSWER_KEY_DELIMITER)) {
+            const splitParts = rawText.split(ANSWER_KEY_DELIMITER);
+            worksheetBody = splitParts[0];
+            answerKeyBody = splitParts[1];
+          }
+
           setGeneratedSheets(prev => [...prev, { 
             pupilName: targetPupil.first_name, 
             subject: wsSubject, 
-            worksheet: parsed.worksheet, 
-            answers: parsed.answers 
+            worksheet: cleanWorksheetMarkup(worksheetBody), 
+            answers: cleanWorksheetMarkup(answerKeyBody) 
           }]);
 
         } catch (fetchErr) {
@@ -376,8 +449,8 @@ export default function Dashboard() {
           setGeneratedSheets(prev => [...prev, { 
             pupilName: targetPupil.first_name, 
             subject: wsSubject, 
-            worksheet: `<h3>⚠ Server Timeout or Error</h3><p>${fetchErr.message}</p>`, 
-            answers: "N/A" 
+            worksheet: `<div class="worksheet-section"><h3>Server Timeout or Error</h3><p>${fetchErr.message}</p></div>`, 
+            answers: "<p>Unavailable</p>" 
           }]);
         }
 
@@ -386,18 +459,18 @@ export default function Dashboard() {
         ledger[`${pid}_${wsSubject}_${todayStr}`] = true;
 
         if (completedCount < totalCalls) {
-          setWsMessage(`⏳ Pacing API (3s) to prevent crash...`);
-          await delay(3000); // REVERTED TO 3 SECONDS
+          setWsMessage(`Pacing requests (3s)...`);
+          await delay(3000);
         }
       }
       
       localStorage.setItem("worksheet_ledger", JSON.stringify(ledger));
       setIsDocumentReady(true);
-      setWsMessage("✅ Generation Complete.");
+      setWsMessage("Generation Complete.");
 
     } catch (error) { 
-      if (error.name === 'AbortError' || error.message === 'Halted by user.') setWsMessage("⏹️ Generation halted.");
-      else setWsMessage(`❌ ${error.message}`); 
+      if (error.name === 'AbortError' || error.message === 'Halted by user.') setWsMessage("Generation halted.");
+      else setWsMessage(`Error: ${error.message}`); 
     } finally { 
       setIsGeneratingWs(false); abortControllerRef.current = null;
     }
@@ -415,12 +488,17 @@ export default function Dashboard() {
           #printable-document, #printable-document * { visibility: visible; }
           #printable-document { position: absolute; left: 0; top: 0; width: 100%; color: black; background: white; }
           .no-print { display: none !important; }
-          .page-break { page-break-before: always; margin-top: 40px; }
-          .worksheet-header { font-size: 24px; font-weight: bold; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px; }
+          .pack-boundary { page-break-before: always; }
+          .answer-page { page-break-before: always; }
+          .worksheet-section, p, ol, ul { page-break-inside: avoid; }
+          .worksheet-header { font-size: 22px; font-weight: bold; border-bottom: 2px solid black; padding-bottom: 8px; margin-bottom: 16px; }
           body { background: white; }
-          .write-line { border-bottom: 1px solid black; margin-top: 15px; margin-bottom: 15px; padding-bottom: 15px; width: 100%; }
+          .write-line { border-bottom: 1px solid #4b5563; margin-top: 12px; margin-bottom: 12px; width: 100%; height: 18px; }
+          .short-line { display: inline-block; border-bottom: 1px solid #4b5563; width: 120px; height: 16px; margin: 0 4px; }
         }
-        .write-line { border-bottom: 1px solid black; margin-top: 15px; margin-bottom: 15px; padding-bottom: 15px; width: 100%; }
+        .write-line { border-bottom: 1px solid #9ca3af; margin-top: 12px; margin-bottom: 12px; width: 100%; height: 18px; }
+        .short-line { display: inline-block; border-bottom: 1px solid #9ca3af; width: 120px; height: 16px; margin: 0 4px; }
+        .worksheet-section { margin-bottom: 24px; }
       `}} />
 
       <div className="no-print" style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto", paddingBottom: "100px" }}>
@@ -438,14 +516,14 @@ export default function Dashboard() {
             
             {pendingVoiceRoute && (
               <div style={{ background: "#fef3c7", border: "1px solid #fbbf24", padding: "12px", borderRadius: "6px", marginTop: "10px", fontSize: "14px" }}>
-                <p style={{ margin: "0 0 10px 0", color: "#92400e", fontWeight: "bold" }}>🤔 Did you mean:</p>
+                <p style={{ margin: "0 0 10px 0", color: "#92400e", fontWeight: "bold" }}>Match Confirmation:</p>
                 <div style={{ marginBottom: "10px", color: "#92400e" }}>
                   <strong>Pupil:</strong> {pendingVoiceRoute.matched_pupil} <br/>
                   <strong>Skill:</strong> {pendingVoiceRoute.matched_skill} <br/>
                   <strong>Status:</strong> {pendingVoiceRoute.status}
                 </div>
                 <div style={{ display: "flex", gap: "10px" }}>
-                  <button onClick={() => executeDatabaseRoute(pendingVoiceRoute)} style={{ flex: 1, padding: "8px", background: "#f59e0b", color: "white", border: "none", borderRadius: "4px", fontWeight: "bold", cursor: "pointer" }}>Yes, Route It</button>
+                  <button onClick={() => executeDatabaseRoute(pendingVoiceRoute)} style={{ flex: 1, padding: "8px", background: "#f59e0b", color: "white", border: "none", borderRadius: "4px", fontWeight: "bold", cursor: "pointer" }}>Confirm Route</button>
                   <button onClick={() => setPendingVoiceRoute(null)} style={{ flex: 1, padding: "8px", background: "white", color: "#92400e", border: "1px solid #fbbf24", borderRadius: "4px", fontWeight: "bold", cursor: "pointer" }}>Cancel</button>
                 </div>
               </div>
@@ -453,11 +531,11 @@ export default function Dashboard() {
 
             {!pendingVoiceRoute && (
               <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-                <button onClick={toggleRecording} disabled={isProcessingNote} style={{ padding: "10px", background: isRecording ? "#ef4444" : "#e0f2fe", color: isRecording ? "white" : "#0284c7", border: "1px solid #7dd3fc", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isRecording ? "🔴 Stop" : "🎤 Dictate"}</button>
-                <button onClick={handleProcessNote} disabled={isProcessingNote || !noteText.trim()} style={{ flex: 1, padding: "10px", background: "#0ea5e9", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isProcessingNote ? "Processing..." : "✨ Route Note"}</button>
+                <button onClick={toggleRecording} disabled={isProcessingNote} style={{ padding: "10px", background: isRecording ? "#ef4444" : "#e0f2fe", color: isRecording ? "white" : "#0284c7", border: "1px solid #7dd3fc", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isRecording ? "Stop" : "Dictate"}</button>
+                <button onClick={handleProcessNote} disabled={isProcessingNote || !noteText.trim()} style={{ flex: 1, padding: "10px", background: "#0ea5e9", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isProcessingNote ? "Processing..." : "Route Note"}</button>
               </div>
             )}
-            {noteMessage && !pendingVoiceRoute && <p style={{ marginTop: "10px", fontSize: "14px", fontWeight: "600", color: noteMessage.includes("❌") ? "#ef4444" : "#0369a1" }}>{noteMessage}</p>}
+            {noteMessage && !pendingVoiceRoute && <p style={{ marginTop: "10px", fontSize: "14px", fontWeight: "600", color: noteMessage.includes("Error") ? "#ef4444" : "#0369a1" }}>{noteMessage}</p>}
           </div>
 
           <div style={{ background: "#fdf4ff", border: "2px solid #f5d0fe", padding: "25px", borderRadius: "8px" }}>
@@ -494,13 +572,13 @@ export default function Dashboard() {
             </div>
 
             {isGeneratingWs ? (
-              <button onClick={() => abortControllerRef.current?.abort()} style={{ width: "100%", padding: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>⏹️ Halt Generation</button>
+              <button onClick={() => abortControllerRef.current?.abort()} style={{ width: "100%", padding: "12px", background: "#ef4444", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Halt Generation</button>
             ) : (
-              <button onClick={handleGenerateWorksheet} disabled={wsSelectedPupils.length === 0} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: wsSelectedPupils.length === 0 ? "not-allowed" : "pointer", opacity: wsSelectedPupils.length === 0 ? 0.5 : 1 }}>✨ Generate Resources</button>
+              <button onClick={handleGenerateWorksheet} disabled={wsSelectedPupils.length === 0} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: wsSelectedPupils.length === 0 ? "not-allowed" : "pointer", opacity: wsSelectedPupils.length === 0 ? 0.5 : 1 }}>Generate Resources</button>
             )}
 
             {isDocumentReady && !isGeneratingWs && generatedSheets.length > 0 && (
-               <button onClick={handleRevealDocument} style={{ width: "100%", padding: "12px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", marginTop: "10px", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}><span>✅</span> View Document Ready to Print</button>
+               <button onClick={handleRevealDocument} style={{ width: "100%", padding: "12px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", marginTop: "10px", display: "flex", justifyContent: "center", alignItems: "center", gap: "8px" }}><span>✔</span> View Document Ready to Print</button>
             )}
           </div>
         </div>
@@ -623,23 +701,25 @@ export default function Dashboard() {
       {generatedSheets.length > 0 && isDocumentReady && (
         <div id="printable-document" style={{ maxWidth: "800px", margin: "40px auto", padding: "40px", background: "white", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
           <div className="no-print" style={{ textAlign: "right", marginBottom: "20px" }}>
-            <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>🖨️ Print Document</button>
+            <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Print Document</button>
           </div>
           {generatedSheets.map((sheet, idx) => (
-            <div key={`ws-${idx}`} className={idx > 0 ? "page-break" : ""}>
-              <div className="worksheet-header">{sheet.pupilName} | {sheet.subject}</div>
-              <div dangerouslySetInnerHTML={{ __html: sheet.worksheet }} style={{ lineHeight: "1.8", fontSize: "16px" }} />
+            <div key={`pack-${idx}`} className={idx > 0 ? "pack-boundary" : ""}>
+              
+              {/* Pupil Worksheet Body */}
+              <div className="worksheet-pack">
+                <div className="worksheet-header">{sheet.pupilName} | {sheet.subject}</div>
+                <div dangerouslySetInnerHTML={{ __html: sheet.worksheet }} style={{ lineHeight: "1.7", fontSize: "15px" }} />
+              </div>
+
+              {/* Individual Dedicated Answer Key */}
+              <div className="answer-page">
+                <div className="worksheet-header">{sheet.pupilName} | Answer Key ({sheet.subject})</div>
+                <div dangerouslySetInnerHTML={{ __html: sheet.answers }} style={{ fontSize: "14px", color: "#374151", background: "#f9fafb", padding: "20px", borderRadius: "6px", border: "1px dashed #d1d5db", lineHeight: "1.6" }} />
+              </div>
+
             </div>
           ))}
-          <div className="page-break">
-            <h1 style={{ textAlign: "center", borderBottom: "3px solid black", paddingBottom: "10px" }}>Answer Keys</h1>
-            {generatedSheets.map((sheet, idx) => (
-              <div key={`ans-${idx}`} style={{ marginTop: "30px" }}>
-                <h3>{sheet.pupilName} | {sheet.subject}</h3>
-                <div dangerouslySetInnerHTML={{ __html: sheet.answers }} style={{ fontSize: "14px", color: "#374151", background: "#f9fafb", padding: "15px", borderRadius: "6px", border: "1px dashed #d1d5db" }} />
-              </div>
-            ))}
-          </div>
         </div>
       )}
 

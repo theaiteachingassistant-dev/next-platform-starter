@@ -21,6 +21,12 @@ export default function Dashboard() {
   const [isSend, setIsSend] = useState(false);
   const [isEal, setIsEal] = useState(false);
   const [isPp, setIsPp] = useState(false);
+  
+  // NEW: Interests State
+  const [interestOne, setInterestOne] = useState("");
+  const [interestTwo, setInterestTwo] = useState("");
+  const [interestThree, setInterestThree] = useState("");
+
   const [isPupilSubmitting, setIsPupilSubmitting] = useState(false);
   const [pupilMessage, setPupilMessage] = useState("");
 
@@ -99,14 +105,29 @@ export default function Dashboard() {
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!firstName || !lastInitial) { setPupilMessage("❌ First name and last initial required."); return; }
+    
     setIsPupilSubmitting(true); setPupilMessage("Saving...");
     try {
+      const combinedInterests = [interestOne, interestTwo, interestThree].filter(Boolean).join(", ");
+
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
-      const { error } = await supabase.from("pupils").insert({ user_id: userId, first_name: firstName, last_initial: lastInitial.toUpperCase(), is_send: isSend, is_eal: isEal, is_pp: isPp });
+      const { error } = await supabase.from("pupils").insert({ 
+        user_id: userId, 
+        first_name: firstName, 
+        last_initial: lastInitial.toUpperCase(), 
+        is_send: isSend, 
+        is_eal: isEal, 
+        is_pp: isPp,
+        interests: combinedInterests
+      });
       if (error) throw error;
       setPupilMessage("✅ Pupil added.");
+      
+      // Reset Form
       setFirstName(""); setLastInitial(""); setIsSend(false); setIsEal(false); setIsPp(false);
+      setInterestOne(""); setInterestTwo(""); setInterestThree("");
+      
       fetchDashboardData();
       setTimeout(() => setPupilMessage(""), 3000);
     } catch (error) { setPupilMessage(`❌ Error: ${error.message}`); } finally { setIsPupilSubmitting(false); }
@@ -180,7 +201,6 @@ export default function Dashboard() {
         { "pupil_id": "the-uuid-of-the-pupil", "skill_id": "the-uuid-of-the-skill", "status": "Practising" }
       `;
 
-      // UPDATED: Changed from gemini-1.5-flash to gemini-2.5-flash
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -267,13 +287,23 @@ export default function Dashboard() {
 
       {/* Row 2: Pupils & Interactive Matrix */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "30px", marginBottom: "30px" }}>
+        
+        {/* UPDATED PUPIL FORM WITH INTERESTS */}
         <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "20px" }}>Pupil Onboarding</h2>
           <form onSubmit={handleAddPupil}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "15px" }}>
               <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="First Name" />
               <input type="text" value={lastInitial} onChange={(e) => setLastInitial(e.target.value.substring(0, 1))} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="Last Initial (e.g. J)" maxLength={1} />
             </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
+              <label style={{ fontSize: "13px", fontWeight: "600", color: "#4b5563" }}>Child's Interests (For AI Generation)</label>
+              <input type="text" value={interestOne} onChange={(e) => setInterestOne(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 1 (e.g. Dinosaurs)" />
+              <input type="text" value={interestTwo} onChange={(e) => setInterestTwo(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 2 (e.g. Space)" />
+              <input type="text" value={interestThree} onChange={(e) => setInterestThree(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 3 (e.g. Football)" />
+            </div>
+
             <div style={{ marginBottom: "25px", display: "flex", gap: "20px", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isSend} onChange={(e) => setIsSend(e.target.checked)} disabled={isPupilSubmitting} /> SEND</label>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isEal} onChange={(e) => setIsEal(e.target.checked)} disabled={isPupilSubmitting} /> EAL</label>
@@ -288,7 +318,7 @@ export default function Dashboard() {
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Interactive Cohort Matrix</h2>
           <p style={{ fontSize: "13px", color: "#6b7280", margin: "0 0 15px 0" }}>Click on any pupil to view their skills. Click a skill badge to manually toggle status.</p>
           
-          <div style={{ flex: 1, overflowY: "auto", maxHeight: "500px", paddingRight: "10px" }}>
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: "600px", paddingRight: "10px" }}>
             {pupils.length === 0 ? <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: "14px" }}>No pupils found.</div> : 
               pupils.map((pupil) => {
                 const isExpanded = expandedPupil === pupil.id;
@@ -305,6 +335,13 @@ export default function Dashboard() {
 
                     {isExpanded && (
                       <div style={{ padding: "15px", background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
+                        
+                        {pupil.interests && (
+                          <div style={{ marginBottom: "15px", fontSize: "13px", color: "#4b5563" }}>
+                            <strong>Interests:</strong> {pupil.interests}
+                          </div>
+                        )}
+
                         {skills.length === 0 ? (
                           <div style={{ fontSize: "12px", color: "#9ca3af" }}>Map curriculum skills below to track them here.</div>
                         ) : (

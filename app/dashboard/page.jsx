@@ -701,23 +701,25 @@ Create a complete Weekly Pack in EXACTLY this section order:
       {generatedSheets.length > 0 && isDocumentReady && (
         <div id="printable-document" style={{ maxWidth: "800px", margin: "40px auto", padding: "40px", background: "white", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
           <div className="no-print" style={{ textAlign: "right", marginBottom: "20px" }}>
-            <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Print Document</button>
+            <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>🖨️ Print Document</button>
           </div>
+          
+          {/* Loop 1: All Worksheets */ }
           {generatedSheets.map((sheet, idx) => (
-            <div key={`pack-${idx}`} className={idx > 0 ? "pack-boundary" : ""}>
-              
-              {/* Pupil Worksheet Body */}
+            <div key={`ws-${idx}`} className={idx > 0 ? "pack-boundary" : ""}>
               <div className="worksheet-pack">
                 <div className="worksheet-header">{sheet.pupilName} | {sheet.subject}</div>
                 <div dangerouslySetInnerHTML={{ __html: sheet.worksheet }} style={{ lineHeight: "1.7", fontSize: "15px" }} />
               </div>
+            </div>
+          ))}
 
-              {/* Individual Dedicated Answer Key */}
-              <div className="answer-page">
-                <div className="worksheet-header">{sheet.pupilName} | Answer Key ({sheet.subject})</div>
-                <div dangerouslySetInnerHTML={{ __html: sheet.answers }} style={{ fontSize: "14px", color: "#374151", background: "#f9fafb", padding: "20px", borderRadius: "6px", border: "1px dashed #d1d5db", lineHeight: "1.6" }} />
-              </div>
-
+          {/* Loop 2: All Answer Keys at the End */ }
+          {generatedSheets.map((sheet, idx) => (
+            <div key={`ans-${idx}`} className="answer-page">
+              {idx === 0 && <h1 style={{ textAlign: "center", borderBottom: "3px solid black", paddingBottom: "10px", marginBottom: "20px" }}>Answer Keys</h1>}
+              <div className="worksheet-header">{sheet.pupilName} | Answer Key ({sheet.subject})</div>
+              <div dangerouslySetInnerHTML={{ __html: sheet.answers }} style={{ fontSize: "14px", color: "#374151", background: "#f9fafb", padding: "20px", borderRadius: "6px", border: "1px dashed #d1d5db", lineHeight: "1.6" }} />
             </div>
           ))}
         </div>

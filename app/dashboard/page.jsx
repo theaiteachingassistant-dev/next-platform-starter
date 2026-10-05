@@ -330,21 +330,19 @@ export default function Dashboard() {
 
         let systemPrompt = `You are an expert UK primary school teacher. 
         CRITICAL: The child is a ${pGender} (use ${pro} pronouns). Reading ability: "${readLevel}". Adapt all text to this level.
-        Output ONLY raw JSON: { "worksheet": "<html> string", "answers": "<html> string" }. Format HTML nicely using <h2>, <p>, <strong>, and lists. Add multiple <br> and underscores ____________ for writing lines after EVERY question. `;
+        Output ONLY raw JSON: { "worksheet": "<html> string", "answers": "<html> string" }. Format HTML nicely using <h2>, <p>, <strong>, and lists. Instead of adding blank <br> tags or underscores for writing lines, use the class <p class="write-line">...</p> to designate lines for the student to write their answer. `;
 
         if (wsSubject === "Weekly Pack") {
           const r = getTargetForSubject(pid, "Reading");
           const m = getTargetForSubject(pid, "Maths");
           const w = getTargetForSubject(pid, "Writing");
           const s = getTargetForSubject(pid, "Spelling");
-          const t = getTargetForSubject(pid, "Timestables");
 
           systemPrompt += `Create a complete Weekly Pack separated by <h2> headers in EXACTLY this order:
           1. Reading: 150-word story about ${interests}. 5 NFER-style comprehension questions on "${r.skill_name}".
           2. Maths: Target "${m.skill_name}". 5 arithmetic, 3 word problems about ${interests}, 1 challenge.
           3. Writing: Target "${w.skill_name}". 1) Identify in sentence, 2) Gap-fill, 3) Write paragraph about ${interests}.
-          4. Spelling: Target "${s.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.
-          5. Timestables: Target "${t.skill_name}". 20 randomized questions.`;
+          4. Spelling: Target "${s.skill_name}". 8 words broken down phonetically, 3 blank lines next to each.`;
         } else {
           const tg = getTargetForSubject(pid, wsSubject);
           if (wsSubject === "Reading") systemPrompt += `Reading worksheet. 150-word text about ${interests}. 5 NFER comprehension questions on: "${tg.skill_name}".`;
@@ -378,7 +376,7 @@ export default function Dashboard() {
           setGeneratedSheets(prev => [...prev, { 
             pupilName: targetPupil.first_name, 
             subject: wsSubject, 
-            worksheet: `<h3>⚠️️ Server Timeout or Error</h3><p>${fetchErr.message}</p>`, 
+            worksheet: `<h3>⚠ Server Timeout or Error</h3><p>${fetchErr.message}</p>`, 
             answers: "N/A" 
           }]);
         }
@@ -388,8 +386,8 @@ export default function Dashboard() {
         ledger[`${pid}_${wsSubject}_${todayStr}`] = true;
 
         if (completedCount < totalCalls) {
-          setWsMessage(`⏳ Pacing API (4.5s) to prevent crash...`);
-          await delay(4500); 
+          setWsMessage(`⏳ Pacing API (3s) to prevent crash...`);
+          await delay(3000); // REVERTED TO 3 SECONDS
         }
       }
       
@@ -420,7 +418,9 @@ export default function Dashboard() {
           .page-break { page-break-before: always; margin-top: 40px; }
           .worksheet-header { font-size: 24px; font-weight: bold; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px; }
           body { background: white; }
+          .write-line { border-bottom: 1px solid black; margin-top: 15px; margin-bottom: 15px; padding-bottom: 15px; width: 100%; }
         }
+        .write-line { border-bottom: 1px solid black; margin-top: 15px; margin-bottom: 15px; padding-bottom: 15px; width: 100%; }
       `}} />
 
       <div className="no-print" style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto", paddingBottom: "100px" }}>
@@ -489,7 +489,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <select value={wsSubject} onChange={(e) => setWsSubject(e.target.value)} disabled={isGeneratingWs} style={{ flex: 1, padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px", height: "fit-content" }}>
-                <option value="Weekly Pack">Weekly Pack (All 5)</option><option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
+                <option value="Weekly Pack">Weekly Pack (4 Subjects)</option><option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
               </select>
             </div>
 
@@ -620,7 +620,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {generatedSheets.length > 0 && (
+      {generatedSheets.length > 0 && isDocumentReady && (
         <div id="printable-document" style={{ maxWidth: "800px", margin: "40px auto", padding: "40px", background: "white", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
           <div className="no-print" style={{ textAlign: "right", marginBottom: "20px" }}>
             <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>🖨️ Print Document</button>

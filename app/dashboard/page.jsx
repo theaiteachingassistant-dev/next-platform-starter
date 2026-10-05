@@ -9,8 +9,12 @@ export default function Dashboard() {
   // Database State
   const [pupils, setPupils] = useState([]);
   const [skills, setSkills] = useState([]);
+  const [progress, setProgress] = useState([]); // NEW: Tracks the yes/no status
   const [dbStatus, setDbStatus] = useState("Connecting to secure database...");
   
+  // UI State for Matrix
+  const [expandedPupil, setExpandedPupil] = useState(null); // Tracks which pupil profile is open
+
   // Pupil Form State
   const [firstName, setFirstName] = useState("");
   const [lastInitial, setLastInitial] = useState("");
@@ -51,6 +55,11 @@ export default function Dashboard() {
       const { data: skillsData, error: skillsError } = await supabase.from("curriculum_skills").select("*").order("subject", { ascending: true }).order("display_order", { ascending: true });
       if (skillsError) throw skillsError;
       setSkills(skillsData || []);
+
+      // Fetch the actual yes/no progress mapped to these pupils
+      const { data: progressData, error: progressError } = await supabase.from("pupil_progress").select("*");
+      if (progressError) throw progressError;
+      setProgress(progressData || []);
       
       setDbStatus(`✅ Secure Connection. ${pupilsData?.length || 0} Pupils | ${skillsData?.length || 0} Skills`);
     } catch (error) {
@@ -65,7 +74,30 @@ export default function Dashboard() {
     if (savedKey) setIsKeySaved(true);
   }, [fetchDashboardData]);
 
-  // Basic Handlers (Pupils & Skills)
+  // Manual Matrix Click Handler (Overrides Voice)
+  const toggleSkillStatus = async (pupilId, skillId, currentStatus) => {
+    // Traffic Light Cycle: Red(Not Yet) -> Amber(Practising) -> Green(Achieved) -> Red(Not Yet)
+    const cycle = {
+      'Not Yet': 'Practising',
+      'Practising': 'Achieved',
+      'Achieved': 'Not Yet'
+    };
+    const nextStatus = cycle[currentStatus || 'Not Yet'] || 'Achieved';
+
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("pupil_progress").upsert(
+        { user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus },
+        { onConflict: 'pupil_id,skill_id' }
+      );
+      fetchDashboardData(); // Hydrate the UI instantly to change the color
+    } catch (error) {
+      console.error("Failed to update status manually:", error);
+    }
+  };
+
+  // Form Handlers
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!firstName || !lastInitial) { setPupilMessage("❌ First name and last initial required."); return; }
@@ -98,7 +130,6 @@ export default function Dashboard() {
     } catch (error) { setSkillMessage(`❌ Error: ${error.message}`); } finally { setIsSkillSubmitting(false); }
   };
 
-  // BYOK Handlers
   const handleSaveKey = (e) => {
     e.preventDefault();
     if (!geminiKey.trim()) return;
@@ -107,33 +138,22 @@ export default function Dashboard() {
   };
   const handleClearKey = () => { localStorage.removeItem("gemini_api_key"); setIsKeySaved(false); };
 
-  // Speech Recognition Handler (Web API)
   const toggleRecording = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setNoteMessage("❌ Voice recognition not supported in this browser. Please type instead.");
-      return;
-    }
-    
-    if (isRecording) {
-      setIsRecording(false);
-      return;
-    }
+    if (!SpeechRecognition) { setNoteMessage("❌ Voice recognition not supported in this browser. Please type instead."); return; }
+    if (isRecording) { setIsRecording(false); return; }
 
     const recognition = new SpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
-    
     recognition.onstart = () => { setIsRecording(true); setNoteMessage("🎤 Listening..."); };
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
       setNoteText((prev) => prev + (prev ? " " : "") + transcript);
-      setIsRecording(false);
-      setNoteMessage("");
+      setIsRecording(false); setNoteMessage("");
     };
     recognition.onerror = () => { setIsRecording(false); setNoteMessage("❌ Mic error. Please type."); };
     recognition.onend = () => { setIsRecording(false); };
-    
     recognition.start();
   };
 
@@ -141,80 +161,60 @@ export default function Dashboard() {
   const handleProcessNote = async () => {
     if (!noteText.trim()) return;
     const apiKey = localStorage.getItem("gemini_api_key");
-    if (!apiKey) {
-      setNoteMessage("❌ Please save your Gemini API Key in the System Configuration first.");
-      return;
-    }
-    if (pupils.length === 0 || skills.length === 0) {
-      setNoteMessage("❌ You must add at least one pupil and one skill before routing notes.");
-      return;
-    }
-
+    if (!apiKey) { setNoteMessage("❌ Please save your Gemini API Key in the System Configuration first."); return; }
+    
     setIsProcessingNote(true);
     setNoteMessage("🧠 AI is analyzing the note...");
 
     try {
-      // 1. Prepare Context (Strip unneeded data to save tokens)
       const mappedPupils = pupils.map(p => ({ id: p.id, name: `${p.first_name} ${p.last_initial}` }));
       const mappedSkills = skills.map(s => ({ id: s.id, subject: s.subject, skill: s.skill_name }));
 
-      // 2. The Strict JSON Prompt
       const prompt = `
         You are an AI assistant for a teacher. Read the teacher's note and map it to ONE pupil and ONE skill from the provided lists.
-        Determine their status: 'Achieved' (mastered/nailed it), 'Practising' (struggling/working on it), or 'Introduced' (started today). Default to 'Practising' if unsure.
+        Determine their status: 'Achieved' (mastered/nailed it), 'Practising' (struggling/working on it), or 'Not Yet' (started today). Default to 'Practising' if unsure.
         
         Teacher's Note: "${noteText}"
-        
         Available Pupils (JSON): ${JSON.stringify(mappedPupils)}
         Available Skills (JSON): ${JSON.stringify(mappedSkills)}
         
-        Respond ONLY with a raw, valid JSON object exactly like this (no markdown, no backticks, no extra text):
-        {
-          "pupil_id": "the-uuid-of-the-pupil",
-          "skill_id": "the-uuid-of-the-skill",
-          "status": "Practising"
-        }
+        Respond ONLY with a raw, valid JSON object exactly like this:
+        { "pupil_id": "the-uuid-of-the-pupil", "skill_id": "the-uuid-of-the-skill", "status": "Practising" }
       `;
 
-      // 3. Direct API Call to Google (BYOK)
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
       });
 
-      if (!response.ok) throw new Error("Google AI API rejected the request. Check your API key.");
-      const data = await response.json();
-      
-      // 4. Parse the AI's Response
-      const rawText = data.candidates[0].content.parts[0].text.trim();
-      const cleanJson = rawText.replace(/```json/g, "").replace(/```/g, ""); // Strip markdown if AI disobeys
-      const aiResult = JSON.parse(cleanJson);
-
-      if (!aiResult.pupil_id || !aiResult.skill_id) {
-        throw new Error("AI could not find a matching pupil or skill in your database.");
+      // ERROR EXTRACTION: Pull the exact Google error if it fails
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Google AI: ${errorData.error?.message || response.statusText}`);
       }
 
-      setNoteMessage("🔐 Routing to secure database...");
+      const data = await response.json();
+      const rawText = data.candidates[0].content.parts[0].text.trim();
+      const cleanJson = rawText.replace(/```json/g, "").replace(/```/g, ""); 
+      const aiResult = JSON.parse(cleanJson);
 
-      // 5. Upsert to Supabase
+      if (!aiResult.pupil_id || !aiResult.skill_id) throw new Error("AI could not find a matching pupil or skill.");
+
+      setNoteMessage("🔐 Routing to secure database...");
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       
       const { error: dbError } = await supabase.from("pupil_progress").upsert(
-        { 
-          user_id: userId,
-          pupil_id: aiResult.pupil_id,
-          skill_id: aiResult.skill_id,
-          status: aiResult.status
-        },
-        { onConflict: 'pupil_id,skill_id' } // Overwrites if the pupil already has a status for this skill
+        { user_id: userId, pupil_id: aiResult.pupil_id, skill_id: aiResult.skill_id, status: aiResult.status },
+        { onConflict: 'pupil_id,skill_id' } 
       );
 
       if (dbError) throw dbError;
 
       setNoteMessage(`✅ Success! Updated database: ${aiResult.status}`);
       setNoteText("");
+      fetchDashboardData(); // Update the visual matrix
       setTimeout(() => setNoteMessage(""), 4000);
 
     } catch (error) {
@@ -238,7 +238,7 @@ export default function Dashboard() {
         <UserButton />
       </div>
 
-      {/* Row 1: Voice Routing Engine (NEW) */}
+      {/* Row 1: Voice Routing Engine */}
       <div style={{ background: "#f0f9ff", border: "2px solid #bae6fd", padding: "25px", borderRadius: "8px", marginBottom: "30px" }}>
         <h2 style={{ marginTop: 0, color: "#0369a1", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>🎙️</span> Voice Routing AI Note-Taker</h2>
         <p style={{ fontSize: "14px", color: "#0c4a6e", marginBottom: "20px" }}>Dictate or type your note. The AI will analyze the text, find the correct pupil, find the specific skill, and update their secure digital file automatically.</p>
@@ -254,19 +254,10 @@ export default function Dashboard() {
             />
             
             <div style={{ display: "flex", gap: "10px", marginTop: "15px" }}>
-              <button 
-                onClick={toggleRecording}
-                disabled={isProcessingNote}
-                style={{ padding: "12px 20px", background: isRecording ? "#ef4444" : "#e0f2fe", color: isRecording ? "white" : "#0284c7", border: "1px solid #7dd3fc", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
-              >
+              <button onClick={toggleRecording} disabled={isProcessingNote} style={{ padding: "12px 20px", background: isRecording ? "#ef4444" : "#e0f2fe", color: isRecording ? "white" : "#0284c7", border: "1px solid #7dd3fc", borderRadius: "6px", fontWeight: "bold", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}>
                 {isRecording ? "🔴 Stop Recording" : "🎤 Tap to Dictate"}
               </button>
-              
-              <button 
-                onClick={handleProcessNote}
-                disabled={isProcessingNote || !noteText.trim()}
-                style={{ flex: 1, padding: "12px", background: "#0ea5e9", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: isProcessingNote || !noteText.trim() ? "not-allowed" : "pointer", opacity: isProcessingNote || !noteText.trim() ? 0.6 : 1 }}
-              >
+              <button onClick={handleProcessNote} disabled={isProcessingNote || !noteText.trim()} style={{ flex: 1, padding: "12px", background: "#0ea5e9", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: isProcessingNote || !noteText.trim() ? "not-allowed" : "pointer", opacity: isProcessingNote || !noteText.trim() ? 0.6 : 1 }}>
                 {isProcessingNote ? "Processing with AI..." : "✨ Process & Route Note"}
               </button>
             </div>
@@ -276,16 +267,16 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Row 2: Pupils */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
+      {/* Row 2: Pupils & Interactive Matrix */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "30px", marginBottom: "30px" }}>
         <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
           <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "20px" }}>Pupil Onboarding</h2>
           <form onSubmit={handleAddPupil}>
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "15px", marginBottom: "20px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
               <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="First Name" />
               <input type="text" value={lastInitial} onChange={(e) => setLastInitial(e.target.value.substring(0, 1))} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="Last Initial (e.g. J)" maxLength={1} />
             </div>
-            <div style={{ marginBottom: "25px", display: "flex", gap: "20px" }}>
+            <div style={{ marginBottom: "25px", display: "flex", gap: "20px", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isSend} onChange={(e) => setIsSend(e.target.checked)} disabled={isPupilSubmitting} /> SEND</label>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isEal} onChange={(e) => setIsEal(e.target.checked)} disabled={isPupilSubmitting} /> EAL</label>
               <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isPp} onChange={(e) => setIsPp(e.target.checked)} disabled={isPupilSubmitting} /> PP</label>
@@ -296,18 +287,59 @@ export default function Dashboard() {
         </div>
 
         <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
-          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Active Cohort</h2>
-          <div style={{ flex: 1, overflowY: "auto", maxHeight: "250px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
+          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Interactive Cohort Matrix</h2>
+          <p style={{ fontSize: "13px", color: "#6b7280", margin: "0 0 15px 0" }}>Click on any pupil to view their skills. Click a skill badge to manually toggle status.</p>
+          
+          <div style={{ flex: 1, overflowY: "auto", maxHeight: "500px", paddingRight: "10px" }}>
             {pupils.length === 0 ? <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: "14px" }}>No pupils found.</div> : 
-              pupils.map((pupil, i) => (
-                <div key={i} style={{ background: "white", padding: "10px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: "4px", marginBottom: "5px", border: "1px solid #e5e7eb", fontSize: "14px" }}>
-                  <strong>{pupil.first_name} {pupil.last_initial}.</strong>
-                  <div style={{ display: "flex", gap: "4px" }}>
-                    {pupil.is_send && <span style={{ background: "#fef3c7", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>SEND</span>}
-                    {pupil.is_pp && <span style={{ background: "#dbeafe", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>PP</span>}
+              pupils.map((pupil) => {
+                const isExpanded = expandedPupil === pupil.id;
+                return (
+                  <div key={pupil.id} style={{ border: "1px solid #e5e7eb", marginBottom: "8px", borderRadius: "6px", overflow: "hidden", background: "white" }}>
+                    
+                    {/* Collapsed Header */}
+                    <div onClick={() => setExpandedPupil(isExpanded ? null : pupil.id)} style={{ padding: "12px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ fontWeight: "600", fontSize: "15px" }}>{pupil.first_name} {pupil.last_initial}.</div>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        {pupil.is_send && <span style={{ background: "#fef3c7", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>SEND</span>}
+                        {pupil.is_pp && <span style={{ background: "#dbeafe", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>PP</span>}
+                      </div>
+                    </div>
+
+                    {/* Expanded Matrix */}
+                    {isExpanded && (
+                      <div style={{ padding: "15px", background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
+                        {skills.length === 0 ? (
+                          <div style={{ fontSize: "12px", color: "#9ca3af" }}>Map curriculum skills below to track them here.</div>
+                        ) : (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                            {skills.map((skill) => {
+                              // Find this pupil's status for this exact skill
+                              const currentStatus = progress.find(pr => pr.pupil_id === pupil.id && pr.skill_id === skill.id)?.status || 'Not Yet';
+                              
+                              // Determine Traffic Light Colors
+                              let bg = "#fee2e2"; let col = "#991b1b"; let border = "#f87171"; // Red (Not Yet)
+                              if (currentStatus === 'Practising') { bg = "#fef3c7"; col = "#92400e"; border = "#fbbf24"; } // Amber (Practising)
+                              if (currentStatus === 'Achieved') { bg = "#dcfce3"; col = "#166534"; border = "#4ade80"; } // Green (Achieved)
+                              
+                              return (
+                                <button 
+                                  key={skill.id}
+                                  onClick={() => toggleSkillStatus(pupil.id, skill.id, currentStatus)}
+                                  style={{ padding: "6px 10px", fontSize: "12px", borderRadius: "4px", border: `1px solid ${border}`, background: bg, color: col, cursor: "pointer", fontWeight: "600", transition: "all 0.1s" }}
+                                  title={`Click to change status. Currently: ${currentStatus}`}
+                                >
+                                  {skill.subject.substring(0,1)}: {skill.skill_name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             }
           </div>
         </div>

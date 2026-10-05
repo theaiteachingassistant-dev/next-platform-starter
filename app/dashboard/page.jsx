@@ -31,6 +31,12 @@ export default function Dashboard() {
   const [geminiKey, setGeminiKey] = useState("");
   const [isKeySaved, setIsKeySaved] = useState(false);
 
+  // Voice Routing Note-Taker State
+  const [noteText, setNoteText] = useState("");
+  const [isProcessingNote, setIsProcessingNote] = useState(false);
+  const [noteMessage, setNoteMessage] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+
   // Network Fetch
   const fetchDashboardData = useCallback(async () => {
     if (!isLoaded || !isSignedIn) return;
@@ -59,7 +65,7 @@ export default function Dashboard() {
     if (savedKey) setIsKeySaved(true);
   }, [fetchDashboardData]);
 
-  // Handlers
+  // Basic Handlers (Pupils & Skills)
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!firstName || !lastInitial) { setPupilMessage("❌ First name and last initial required."); return; }
@@ -73,8 +79,7 @@ export default function Dashboard() {
       setFirstName(""); setLastInitial(""); setIsSend(false); setIsEal(false); setIsPp(false);
       fetchDashboardData();
       setTimeout(() => setPupilMessage(""), 3000);
-    } catch (error) { setPupilMessage(`❌ Error: ${error.message}`); } 
-    finally { setIsPupilSubmitting(false); }
+    } catch (error) { setPupilMessage(`❌ Error: ${error.message}`); } finally { setIsPupilSubmitting(false); }
   };
 
   const handleAddSkill = async (e) => {
@@ -90,10 +95,10 @@ export default function Dashboard() {
       setNewSkillName(""); setNewDisplayOrder((prev) => parseInt(prev) + 1); 
       fetchDashboardData();
       setTimeout(() => setSkillMessage(""), 3000);
-    } catch (error) { setSkillMessage(`❌ Error: ${error.message}`); } 
-    finally { setIsSkillSubmitting(false); }
+    } catch (error) { setSkillMessage(`❌ Error: ${error.message}`); } finally { setIsSkillSubmitting(false); }
   };
 
+  // BYOK Handlers
   const handleSaveKey = (e) => {
     e.preventDefault();
     if (!geminiKey.trim()) return;
@@ -102,114 +107,85 @@ export default function Dashboard() {
   };
   const handleClearKey = () => { localStorage.removeItem("gemini_api_key"); setIsKeySaved(false); };
 
-  if (!isLoaded) return null;
+  // Speech Recognition Handler (Web API)
+  const toggleRecording = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setNoteMessage("❌ Voice recognition not supported in this browser. Please type instead.");
+      return;
+    }
+    
+    if (isRecording) {
+      setIsRecording(false);
+      return;
+    }
 
-  return (
-    <div style={{ padding: "30px", fontFamily: "sans-serif", maxWidth: "1200px", margin: "0 auto", paddingBottom: "100px" }}>
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    
+    recognition.onstart = () => { setIsRecording(true); setNoteMessage("🎤 Listening..."); };
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      setNoteText((prev) => prev + (prev ? " " : "") + transcript);
+      setIsRecording(false);
+      setNoteMessage("");
+    };
+    recognition.onerror = () => { setIsRecording(false); setNoteMessage("❌ Mic error. Please type."); };
+    recognition.onend = () => { setIsRecording(false); };
+    
+    recognition.start();
+  };
+
+  // The AI Routing Engine
+  const handleProcessNote = async () => {
+    if (!noteText.trim()) return;
+    const apiKey = localStorage.getItem("gemini_api_key");
+    if (!apiKey) {
+      setNoteMessage("❌ Please save your Gemini API Key in the System Configuration first.");
+      return;
+    }
+    if (pupils.length === 0 || skills.length === 0) {
+      setNoteMessage("❌ You must add at least one pupil and one skill before routing notes.");
+      return;
+    }
+
+    setIsProcessingNote(true);
+    setNoteMessage("🧠 AI is analyzing the note...");
+
+    try {
+      // 1. Prepare Context (Strip unneeded data to save tokens)
+      const mappedPupils = pupils.map(p => ({ id: p.id, name: `${p.first_name} ${p.last_initial}` }));
+      const mappedSkills = skills.map(s => ({ id: s.id, subject: s.subject, skill: s.skill_name }));
+
+      // 2. The Strict JSON Prompt
+      const prompt = `
+        You are an AI assistant for a teacher. Read the teacher's note and map it to ONE pupil and ONE skill from the provided lists.
+        Determine their status: 'Achieved' (mastered/nailed it), 'Practising' (struggling/working on it), or 'Introduced' (started today). Default to 'Practising' if unsure.
+        
+        Teacher's Note: "${noteText}"
+        
+        Available Pupils (JSON): ${JSON.stringify(mappedPupils)}
+        Available Skills (JSON): ${JSON.stringify(mappedSkills)}
+        
+        Respond ONLY with a raw, valid JSON object exactly like this (no markdown, no backticks, no extra text):
+        {
+          "pupil_id": "the-uuid-of-the-pupil",
+          "skill_id": "the-uuid-of-the-skill",
+          "status": "Practising"
+        }
+      `;
+
+      // 3. Direct API Call to Google (BYOK)
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      });
+
+      if (!response.ok) throw new Error("Google AI API rejected the request. Check your API key.");
+      const data = await response.json();
       
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px", marginBottom: "30px" }}>
-        <div>
-          <h1 style={{ margin: 0, color: "#111827" }}>Command Center</h1>
-          <p style={{ margin: "5px 0 0 0", color: "#6b7280", fontSize: "14px", fontWeight: "500" }}>{dbStatus}</p>
-        </div>
-        <UserButton />
-      </div>
-
-      {/* Row 1: Pupils */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
-        <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
-          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "20px" }}>Pupil Onboarding</h2>
-          <form onSubmit={handleAddPupil}>
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "15px", marginBottom: "20px" }}>
-              <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="First Name" />
-              <input type="text" value={lastInitial} onChange={(e) => setLastInitial(e.target.value.substring(0, 1))} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="Last Initial (e.g. J)" maxLength={1} />
-            </div>
-            <div style={{ marginBottom: "25px", display: "flex", gap: "20px" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isSend} onChange={(e) => setIsSend(e.target.checked)} disabled={isPupilSubmitting} /> SEND</label>
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isEal} onChange={(e) => setIsEal(e.target.checked)} disabled={isPupilSubmitting} /> EAL</label>
-              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: "500", cursor: "pointer" }}><input type="checkbox" checked={isPp} onChange={(e) => setIsPp(e.target.checked)} disabled={isPupilSubmitting} /> PP</label>
-            </div>
-            <button type="submit" disabled={isPupilSubmitting} style={{ width: "100%", padding: "12px", background: "#3b82f6", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isPupilSubmitting ? "Saving..." : "Add Pupil"}</button>
-            {pupilMessage && <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: pupilMessage.includes("❌") ? "#ef4444" : "#10b981", textAlign: "center" }}>{pupilMessage}</p>}
-          </form>
-        </div>
-
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
-          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Active Cohort</h2>
-          <div style={{ flex: 1, overflowY: "auto", maxHeight: "250px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
-            {pupils.length === 0 ? <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: "14px" }}>No pupils found.</div> : 
-              pupils.map((pupil, i) => (
-                <div key={i} style={{ background: "white", padding: "10px", borderBottom: "1px solid #f3f4f6", display: "flex", justifyContent: "space-between", alignItems: "center", borderRadius: "4px", marginBottom: "5px", border: "1px solid #e5e7eb", fontSize: "14px" }}>
-                  <strong>{pupil.first_name} {pupil.last_initial}.</strong>
-                  <div style={{ display: "flex", gap: "4px" }}>
-                    {pupil.is_send && <span style={{ background: "#fef3c7", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>SEND</span>}
-                    {pupil.is_pp && <span style={{ background: "#dbeafe", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: "bold" }}>PP</span>}
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        </div>
-      </div>
-
-      {/* Row 2: Curriculum Manager */}
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
-        <div style={{ background: "#fdf4ff", padding: "25px", borderRadius: "8px", border: "1px solid #f5d0fe" }}>
-          <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>📚</span> Curriculum Skills Manager</h2>
-          <p style={{ fontSize: "14px", color: "#a21caf", marginBottom: "20px" }}>Map your spreadsheet columns here. The <strong>Order Number</strong> dictates left-to-right progression.</p>
-          
-          <form onSubmit={handleAddSkill}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: "10px", marginBottom: "20px" }}>
-              <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} disabled={isSkillSubmitting} style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }}>
-                <option value="Maths">Maths</option>
-                <option value="Writing">Writing</option>
-                <option value="Reading">Reading</option>
-                {/* NEW OPTIONS ADDED HERE */}
-                <option value="Spelling">Spelling</option>
-                <option value="Timestables">Timestables</option>
-              </select>
-              <input type="text" value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} disabled={isSkillSubmitting} placeholder="e.g. 3-digit Addition" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} />
-              <input type="number" value={newDisplayOrder} onChange={(e) => setNewDisplayOrder(e.target.value)} disabled={isSkillSubmitting} placeholder="Order (1, 2, 3...)" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} min="1" />
-            </div>
-            <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>{isSkillSubmitting ? "Mapping..." : "Map New Skill"}</button>
-            {skillMessage && <p style={{ marginTop: "15px", fontSize: "14px", fontWeight: "600", color: skillMessage.includes("❌") ? "#ef4444" : "#10b981", textAlign: "center" }}>{skillMessage}</p>}
-          </form>
-        </div>
-
-        <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
-          <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Mapped Skills</h2>
-          <div style={{ flex: 1, overflowY: "auto", maxHeight: "200px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
-            {skills.length === 0 ? <div style={{ textAlign: "center", color: "#9ca3af", padding: "40px 0", fontSize: "14px" }}>No skills mapped yet.</div> : 
-              skills.map((skill, i) => (
-                <div key={i} style={{ padding: "8px", borderBottom: "1px solid #e5e7eb", fontSize: "13px" }}>
-                  <span style={{ fontWeight: "bold", color: "#6b7280", marginRight: "10px" }}>#{skill.display_order}</span>
-                  <span style={{ fontWeight: "600", color: "#4f46e5", marginRight: "10px" }}>{skill.subject}</span>
-                  <span>{skill.skill_name}</span>
-                </div>
-              ))
-            }
-          </div>
-        </div>
-      </div>
-
-      {/* Row 3: BYOK Settings */}
-      <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px" }}>
-        <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "10px", display: "flex", alignItems: "center", gap: "8px" }}><span>⚙</span> AI System Configuration (BYOK)</h2>
-        {isKeySaved ? (
-          <div style={{ display: "inline-block", background: "#ecfdf5", padding: "15px 20px", borderRadius: "6px", border: "1px solid #a7f3d0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <span style={{ fontSize: "18px" }}>✅</span>
-              <div><div style={{ fontWeight: "600", color: "#065f46" }}>API Key Active</div></div>
-              <button onClick={handleClearKey} style={{ marginLeft: "20px", padding: "6px 12px", background: "white", color: "#ef4444", border: "1px solid #fca5a5", borderRadius: "4px", cursor: "pointer", fontSize: "12px", fontWeight: "bold" }}>Disconnect</button>
-            </div>
-          </div>
-        ) : (
-          <form onSubmit={handleSaveKey} style={{ display: "flex", gap: "10px", maxWidth: "500px" }}>
-            <input type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="Paste Gemini API key..." style={{ flex: 1, padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} required />
-            <button type="submit" style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Save Locally</button>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
+      // 4. Parse the AI's Response
+      const rawText = data.candidates[0].content.parts[0].text.trim();
+      const cleanJson = rawText.replace(/```json/g, "").replace(/

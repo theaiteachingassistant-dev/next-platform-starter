@@ -3,6 +3,18 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth, UserButton } from "@clerk/nextjs";
 import { createClerkSupabaseClient } from "../utils/supabase";
 
+// NEW: Highly granular, individually clickable reading levels
+const READING_LEVELS = [
+  "Phonics Phase 1", "Phonics Phase 2", "Phonics Phase 3",
+  "Phonics Phase 4", "Phonics Phase 5", "Phonics Phase 6",
+  "Year 1 Working Towards", "Year 1 Expected", "Year 1 Greater Depth",
+  "Year 2 Working Towards", "Year 2 Expected", "Year 2 Greater Depth",
+  "Year 3 Working Towards", "Year 3 Expected", "Year 3 Greater Depth",
+  "Year 4 Working Towards", "Year 4 Expected", "Year 4 Greater Depth",
+  "Year 5 Working Towards", "Year 5 Expected", "Year 5 Greater Depth",
+  "Year 6 Working Towards", "Year 6 Expected", "Year 6 Greater Depth"
+];
+
 export default function Dashboard() {
   const { getToken, isLoaded, isSignedIn, userId } = useAuth(); 
   
@@ -24,12 +36,13 @@ export default function Dashboard() {
   const [interestOne, setInterestOne] = useState("");
   const [interestTwo, setInterestTwo] = useState("");
   const [interestThree, setInterestThree] = useState("");
-  
-  // NEW: Reading Level State
   const [readingLevel, setReadingLevel] = useState("Year 3 Expected");
-
   const [isPupilSubmitting, setIsPupilSubmitting] = useState(false);
   const [pupilMessage, setPupilMessage] = useState("");
+
+  // Edit Pupil Modal State
+  const [editingPupil, setEditingPupil] = useState(null);
+  const [isUpdatingPupil, setIsUpdatingPupil] = useState(false);
 
   // Curriculum Form State
   const [newSubject, setNewSubject] = useState("Maths");
@@ -37,6 +50,10 @@ export default function Dashboard() {
   const [newDisplayOrder, setNewDisplayOrder] = useState(1);
   const [isSkillSubmitting, setIsSkillSubmitting] = useState(false);
   const [skillMessage, setSkillMessage] = useState("");
+
+  // Edit Skill Modal State
+  const [editingSkill, setEditingSkill] = useState(null);
+  const [isUpdatingSkill, setIsUpdatingSkill] = useState(false);
 
   // BYOK State
   const [geminiKey, setGeminiKey] = useState("");
@@ -55,7 +72,6 @@ export default function Dashboard() {
   const [wsMessage, setWsMessage] = useState("");
   const [generatedSheets, setGeneratedSheets] = useState([]); 
 
-  // Network Fetch
   const fetchDashboardData = useCallback(async () => {
     if (!isLoaded || !isSignedIn) return;
     try {
@@ -77,7 +93,6 @@ export default function Dashboard() {
       setDbStatus(`✅ Secure Connection. ${pupilsData?.length || 0} Pupils | ${skillsData?.length || 0} Skills`);
     } catch (error) {
       setDbStatus("❌ Database Connection Failed.");
-      console.error(error);
     }
   }, [getToken, isLoaded, isSignedIn]);
 
@@ -108,20 +123,42 @@ export default function Dashboard() {
       const token = await getToken({ template: "supabase" });
       const supabase = createClerkSupabaseClient(token);
       await supabase.from("pupils").insert({ 
-        user_id: userId, 
-        first_name: firstName, 
-        last_initial: lastInitial.toUpperCase(), 
-        is_send: isSend, 
-        is_eal: isEal, 
-        is_pp: isPp, 
-        interests: combinedInterests,
-        reading_level: readingLevel
+        user_id: userId, first_name: firstName, last_initial: lastInitial.toUpperCase(), 
+        is_send: isSend, is_eal: isEal, is_pp: isPp, 
+        interests: combinedInterests, reading_level: readingLevel
       });
       setPupilMessage("✅ Pupil added.");
-      setFirstName(""); setLastInitial(""); setIsSend(false); setIsEal(false); setIsPp(false); setInterestOne(""); setInterestTwo(""); setInterestThree(""); setReadingLevel("Year 3 Expected");
+      setFirstName(""); setLastInitial(""); setIsSend(false); setIsEal(false); setIsPp(false); 
+      setInterestOne(""); setInterestTwo(""); setInterestThree(""); setReadingLevel("Year 3 Expected");
       fetchDashboardData();
       setTimeout(() => setPupilMessage(""), 3000);
     } catch (error) { setPupilMessage(`❌ Error: ${error.message}`); } finally { setIsPupilSubmitting(false); }
+  };
+
+  const handleUpdatePupil = async (e) => {
+    e.preventDefault();
+    setIsUpdatingPupil(true);
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("pupils").update({
+        first_name: editingPupil.first_name, last_initial: editingPupil.last_initial.toUpperCase(),
+        is_send: editingPupil.is_send, is_eal: editingPupil.is_eal, is_pp: editingPupil.is_pp,
+        interests: editingPupil.interests, reading_level: editingPupil.reading_level
+      }).eq('id', editingPupil.id);
+      fetchDashboardData();
+      setEditingPupil(null);
+    } catch (error) { console.error(error); } finally { setIsUpdatingPupil(false); }
+  };
+
+  const handleDeletePupil = async (id) => {
+    if (!window.confirm("Delete this pupil permanently? This cannot be undone.")) return;
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("pupils").delete().eq('id', id);
+      fetchDashboardData();
+    } catch (error) { console.error(error); }
   };
 
   const handleAddSkill = async (e) => {
@@ -137,6 +174,30 @@ export default function Dashboard() {
       fetchDashboardData();
       setTimeout(() => setSkillMessage(""), 3000);
     } catch (error) { setSkillMessage(`❌ Error: ${error.message}`); } finally { setIsSkillSubmitting(false); }
+  };
+
+  const handleUpdateSkill = async (e) => {
+    e.preventDefault();
+    setIsUpdatingSkill(true);
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("curriculum_skills").update({
+        subject: editingSkill.subject, skill_name: editingSkill.skill_name, display_order: parseInt(editingSkill.display_order)
+      }).eq('id', editingSkill.id);
+      fetchDashboardData();
+      setEditingSkill(null);
+    } catch (error) { console.error(error); } finally { setIsUpdatingSkill(false); }
+  };
+
+  const handleDeleteSkill = async (id) => {
+    if (!window.confirm("Delete this skill permanently? All pupil progress for this skill will be wiped.")) return;
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("curriculum_skills").delete().eq('id', id);
+      fetchDashboardData();
+    } catch (error) { console.error(error); }
   };
 
   const handleSaveKey = (e) => { e.preventDefault(); if (!geminiKey.trim()) return; localStorage.setItem("gemini_api_key", geminiKey.trim()); setIsKeySaved(true); setGeminiKey(""); };
@@ -173,9 +234,6 @@ export default function Dashboard() {
     } catch (error) { console.error(error); } finally { setIsProcessingNote(false); }
   };
 
-  // ==========================================
-  // DIFFERENTIATED WORKSHEET ENGINE
-  // ==========================================
   const handleGenerateWorksheet = async () => {
     if (!wsPupilId) { setWsMessage("❌ Select a pupil first."); return; }
     const apiKey = localStorage.getItem("gemini_api_key");
@@ -193,10 +251,7 @@ export default function Dashboard() {
     try {
       for (const subj of subjectsToRun) {
         setWsMessage(`⚙️ Synthesizing ${subj}...`);
-        
         const subjSkills = skills.filter(s => s.subject === subj).sort((a,b) => a.display_order - b.display_order);
-        
-        // FIX: If no skill is mapped for a subject, don't skip. Default to "General Practice".
         let targetSkill = { skill_name: "General Age-Appropriate Practice" }; 
         
         if (subjSkills.length > 0) {
@@ -227,39 +282,19 @@ export default function Dashboard() {
         }
 
         const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: systemPrompt }] }],
-            generationConfig: { temperature: 0.7 }
-          })
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }], generationConfig: { temperature: 0.7 } })
         });
-
-        if (!response.ok) throw new Error(`Google API Error for ${subj}`);
         const data = await response.json();
-        
         const rawText = data.candidates[0].content.parts[0].text.trim();
         const cleanJson = rawText.replace(/```json/g, "").replace(/```html/g, "").replace(/```/g, "");
         const parsed = JSON.parse(cleanJson);
-
-        newSheets.push({
-          subject: subj,
-          skillName: targetSkill.skill_name,
-          worksheet: parsed.worksheet,
-          answers: parsed.answers
-        });
+        newSheets.push({ subject: subj, skillName: targetSkill.skill_name, worksheet: parsed.worksheet, answers: parsed.answers });
       }
-
       setGeneratedSheets(newSheets);
       setWsMessage("✅ Document ready to print.");
       setTimeout(() => setWsMessage(""), 4000);
-
-    } catch (error) {
-      console.error(error);
-      setWsMessage("❌ Generation failed. Check API key or prompt output.");
-    } finally {
-      setIsGeneratingWs(false);
-    }
+    } catch (error) { setWsMessage("❌ Generation failed. Check API key or prompt output."); } finally { setIsGeneratingWs(false); }
   };
 
   if (!isLoaded) return null;
@@ -288,8 +323,8 @@ export default function Dashboard() {
           <UserButton />
         </div>
 
+        {/* Row 1: The AI Engines (Voice & Worksheet) */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "30px", marginBottom: "30px" }}>
-          
           <div style={{ background: "#f0f9ff", border: "2px solid #bae6fd", padding: "25px", borderRadius: "8px" }}>
             <h2 style={{ marginTop: 0, color: "#0369a1", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>🎙️</span> Voice Note-Taker</h2>
             <textarea value={noteText} onChange={(e) => setNoteText(e.target.value)} disabled={isProcessingNote} placeholder="e.g. 'Leo is struggling with 3-digit Addition today.'" style={{ width: "100%", height: "80px", padding: "10px", border: "1px solid #7dd3fc", borderRadius: "8px", resize: "none" }} />
@@ -301,31 +336,24 @@ export default function Dashboard() {
 
           <div style={{ background: "#fdf4ff", border: "2px solid #f5d0fe", padding: "25px", borderRadius: "8px" }}>
             <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px", display: "flex", alignItems: "center", gap: "8px" }}><span>📄</span> Differentiated Worksheet Engine</h2>
-            <p style={{ fontSize: "13px", color: "#a21caf", marginBottom: "15px" }}>Automatically targets the pupil's active gaps and injects their interests.</p>
-            
-            <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
+            <div style={{ display: "flex", gap: "10px", marginBottom: "15px", marginTop: "15px" }}>
               <select value={wsPupilId} onChange={(e) => setWsPupilId(e.target.value)} disabled={isGeneratingWs} style={{ flex: 1, padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }}>
                 <option value="">Select Pupil...</option>
                 {pupils.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_initial}.</option>)}
               </select>
               <select value={wsSubject} onChange={(e) => setWsSubject(e.target.value)} disabled={isGeneratingWs} style={{ flex: 1, padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }}>
                 <option value="Weekly Pack">Weekly Pack (All 5)</option>
-                <option value="Maths">Maths Only</option>
-                <option value="Writing">Writing Only</option>
-                <option value="Reading">Reading Only</option>
-                <option value="Spelling">Spelling Only</option>
-                <option value="Timestables">Timestables Only</option>
+                <option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
               </select>
             </div>
-
             <button onClick={handleGenerateWorksheet} disabled={isGeneratingWs || !wsPupilId} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>
               {isGeneratingWs ? wsMessage || "Generating..." : "✨ Generate Resource"}
             </button>
             {!isGeneratingWs && wsMessage && <p style={{ marginTop: "10px", fontSize: "13px", color: "#86198f", textAlign: "center", fontWeight: "bold" }}>{wsMessage}</p>}
           </div>
-
         </div>
 
+        {/* Row 2: Pupils & Matrix */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "30px", marginBottom: "30px" }}>
           
           <div style={{ background: "#f9fafb", padding: "25px", borderRadius: "8px", border: "1px solid #e5e7eb" }}>
@@ -336,27 +364,35 @@ export default function Dashboard() {
                 <input type="text" value={lastInitial} onChange={(e) => setLastInitial(e.target.value.substring(0, 1))} disabled={isPupilSubmitting} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} placeholder="Last Initial (e.g. J)" maxLength={1} />
               </div>
               
-              {/* NEW: Reading Level Dropdown */}
               <div style={{ marginBottom: "15px" }}>
-                <label style={{ fontSize: "13px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "5px" }}>Reading Level</label>
-                <select value={readingLevel} onChange={(e) => setReadingLevel(e.target.value)} style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }}>
-                  <option value="Phonics Phase 1/2 (Early Years)">Phonics Phase 1/2 (Early Years)</option>
-                  <option value="Phonics Phase 3/4 (Reception/Year 1)">Phonics Phase 3/4 (Reception/Year 1)</option>
-                  <option value="Phonics Phase 5/6 (Year 1/2)">Phonics Phase 5/6 (Year 1/2)</option>
-                  <option value="Year 2 Expected">Year 2 Expected</option>
-                  <option value="Year 3 Expected">Year 3 Expected</option>
-                  <option value="Year 4 Expected">Year 4 Expected</option>
-                  <option value="Year 5 Expected">Year 5 Expected</option>
-                  <option value="Year 6 Expected">Year 6 Expected</option>
-                  <option value="Year 6 Greater Depth">Year 6 Greater Depth</option>
-                </select>
+                <label style={{ fontSize: "13px", fontWeight: "600", color: "#4b5563", display: "block", marginBottom: "8px" }}>Reading Level</label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+                  {READING_LEVELS.map(level => (
+                    <button
+                      type="button"
+                      key={level}
+                      onClick={() => setReadingLevel(level)}
+                      style={{
+                        padding: "6px 4px", fontSize: "11px", borderRadius: "4px", cursor: "pointer",
+                        border: readingLevel === level ? "2px solid #3b82f6" : "1px solid #d1d5db",
+                        background: readingLevel === level ? "#eff6ff" : "white",
+                        color: readingLevel === level ? "#1d4ed8" : "#4b5563",
+                        fontWeight: readingLevel === level ? "bold" : "normal"
+                      }}
+                    >
+                      {level}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginBottom: "20px" }}>
                 <label style={{ fontSize: "13px", fontWeight: "600", color: "#4b5563" }}>Child's Interests</label>
-                <input type="text" value={interestOne} onChange={(e) => setInterestOne(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 1" />
-                <input type="text" value={interestTwo} onChange={(e) => setInterestTwo(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 2" />
-                <input type="text" value={interestThree} onChange={(e) => setInterestThree(e.target.value)} style={{ padding: "8px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 3" />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+                  <input type="text" value={interestOne} onChange={(e) => setInterestOne(e.target.value)} style={{ padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 1" />
+                  <input type="text" value={interestTwo} onChange={(e) => setInterestTwo(e.target.value)} style={{ padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 2" />
+                  <input type="text" value={interestThree} onChange={(e) => setInterestThree(e.target.value)} style={{ padding: "8px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "13px" }} placeholder="Interest 3" />
+                </div>
               </div>
               
               <div style={{ marginBottom: "25px", display: "flex", gap: "20px" }}>
@@ -375,17 +411,21 @@ export default function Dashboard() {
                 const isExpanded = expandedPupil === pupil.id;
                 return (
                   <div key={pupil.id} style={{ border: "1px solid #e5e7eb", marginBottom: "8px", borderRadius: "6px", overflow: "hidden", background: "white" }}>
-                    <div onClick={() => setExpandedPupil(isExpanded ? null : pupil.id)} style={{ padding: "12px 15px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div style={{ fontWeight: "600", fontSize: "15px" }}>{pupil.first_name} {pupil.last_initial}.</div>
+                    <div style={{ padding: "12px 15px", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f8fafc" }}>
+                      <div onClick={() => setExpandedPupil(isExpanded ? null : pupil.id)} style={{ fontWeight: "600", fontSize: "15px", cursor: "pointer", flex: 1 }}>
+                        {pupil.first_name} {pupil.last_initial}.
+                      </div>
+                      <div style={{ display: "flex", gap: "10px" }}>
+                        <button onClick={() => setEditingPupil(pupil)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px" }} title="Edit Pupil">✏️</button>
+                        <button onClick={() => handleDeletePupil(pupil.id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px" }} title="Delete Pupil">🗑️</button>
+                      </div>
                     </div>
                     {isExpanded && (
-                      <div style={{ padding: "15px", background: "#f8fafc", borderTop: "1px solid #e5e7eb" }}>
-                        
+                      <div style={{ padding: "15px", borderTop: "1px solid #e5e7eb" }}>
                         <div style={{ marginBottom: "15px", fontSize: "13px", display: "grid", gap: "5px" }}>
                           <div><strong>Reading Level:</strong> <span style={{ color: "#4f46e5", fontWeight: "bold" }}>{pupil.reading_level || "Year 3 Expected"}</span></div>
                           {pupil.interests && <div><strong>Interests:</strong> {pupil.interests}</div>}
                         </div>
-
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                           {skills.map((skill) => {
                             const currentStatus = progress.find(pr => pr.pupil_id === pupil.id && pr.skill_id === skill.id)?.status || 'Not Yet';
@@ -408,48 +448,66 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Row 3: Skills & Settings */}
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "30px", marginBottom: "30px" }}>
-          <div style={{ background: "#fdf4ff", padding: "25px", borderRadius: "8px", border: "1px solid #f5d0fe" }}>
-            <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px" }}>📚 Curriculum Skills Manager</h2>
-            <form onSubmit={handleAddSkill}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: "10px", marginBottom: "20px", marginTop: "15px" }}>
-                <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} disabled={isSkillSubmitting} style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }}>
-                  <option value="Maths">Maths</option><option value="Writing">Writing</option><option value="Reading">Reading</option><option value="Spelling">Spelling</option><option value="Timestables">Timestables</option>
-                </select>
-                <input type="text" value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} disabled={isSkillSubmitting} placeholder="e.g. 3-digit Addition" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} />
-                <input type="number" value={newDisplayOrder} onChange={(e) => setNewDisplayOrder(e.target.value)} disabled={isSkillSubmitting} placeholder="Order" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} min="1" />
+          
+          <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
+            <div style={{ background: "#fdf4ff", padding: "25px", borderRadius: "8px", border: "1px solid #f5d0fe" }}>
+              <h2 style={{ marginTop: 0, color: "#86198f", marginBottom: "5px" }}>📚 Curriculum Skills Manager</h2>
+              <form onSubmit={handleAddSkill}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: "10px", marginBottom: "20px", marginTop: "15px" }}>
+                  <select value={newSubject} onChange={(e) => setNewSubject(e.target.value)} disabled={isSkillSubmitting} style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }}>
+                    <option value="Maths">Maths</option><option value="Writing">Writing</option><option value="Reading">Reading</option><option value="Spelling">Spelling</option><option value="Timestables">Timestables</option>
+                  </select>
+                  <input type="text" value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} disabled={isSkillSubmitting} placeholder="e.g. 3-digit Addition" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} />
+                  <input type="number" value={newDisplayOrder} onChange={(e) => setNewDisplayOrder(e.target.value)} disabled={isSkillSubmitting} placeholder="Order" style={{ padding: "10px", border: "1px solid #f0abfc", borderRadius: "6px" }} min="1" />
+                </div>
+                <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Map New Skill</button>
+              </form>
+            </div>
+
+            <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", display: "flex", flexDirection: "column" }}>
+              <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "15px" }}>Mapped Skills (Edit/Delete)</h2>
+              <div style={{ flex: 1, overflowY: "auto", maxHeight: "250px", border: "1px solid #f3f4f6", borderRadius: "6px", background: "#f9fafb", padding: "10px" }}>
+                {skills.map((skill) => (
+                  <div key={skill.id} style={{ padding: "10px", borderBottom: "1px solid #e5e7eb", fontSize: "13px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontWeight: "bold", color: "#6b7280", marginRight: "10px" }}>#{skill.display_order}</span>
+                      <span style={{ fontWeight: "600", color: "#4f46e5", marginRight: "10px" }}>{skill.subject}</span>
+                      <span>{skill.skill_name}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: "10px" }}>
+                      <button onClick={() => setEditingSkill(skill)} style={{ background: "none", border: "none", cursor: "pointer" }}>✏️</button>
+                      <button onClick={() => handleDeleteSkill(skill.id)} style={{ background: "none", border: "none", cursor: "pointer" }}>🗑️</button>
+                    </div>
+                  </div>
+                ))}
               </div>
-              <button type="submit" disabled={isSkillSubmitting} style={{ width: "100%", padding: "12px", background: "#d946ef", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold" }}>Map New Skill</button>
-            </form>
+            </div>
           </div>
 
-          <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px" }}>
+          <div style={{ background: "#fff", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px", height: "fit-content" }}>
             <h2 style={{ marginTop: 0, color: "#374151" }}>⚙ AI System Config</h2>
             <form onSubmit={handleSaveKey} style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "15px" }}>
               <input type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="Paste Gemini API key..." style={{ width: "100%", padding: "10px", border: "1px solid #d1d5db", borderRadius: "6px" }} />
-              <button type="submit" style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold" }}>Save Locally</button>
+              <button type="submit" style={{ padding: "10px 20px", background: "#10b981", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>Save Locally</button>
             </form>
           </div>
         </div>
-
       </div>
 
+      {/* RENDER WORKSHEET AREA */}
       {generatedSheets.length > 0 && (
         <div id="printable-document" style={{ maxWidth: "800px", margin: "40px auto", padding: "40px", background: "white", boxShadow: "0 10px 25px rgba(0,0,0,0.1)", borderRadius: "8px" }}>
-          
           <div className="no-print" style={{ textAlign: "right", marginBottom: "20px" }}>
             <button onClick={() => window.print()} style={{ padding: "10px 20px", background: "#4f46e5", color: "white", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}>🖨️ Print Document</button>
           </div>
-
           {generatedSheets.map((sheet, idx) => (
             <div key={`ws-${idx}`} className={idx > 0 ? "page-break" : ""}>
-              <div className="worksheet-header">
-                {sheet.subject} Practice: {sheet.skillName}
-              </div>
+              <div className="worksheet-header">{sheet.subject} Practice: {sheet.skillName}</div>
               <div dangerouslySetInnerHTML={{ __html: sheet.worksheet }} style={{ lineHeight: "1.8", fontSize: "16px" }} />
             </div>
           ))}
-
           <div className="page-break">
             <h1 style={{ textAlign: "center", borderBottom: "3px solid black", paddingBottom: "10px" }}>Answer Keys</h1>
             {generatedSheets.map((sheet, idx) => (
@@ -459,7 +517,77 @@ export default function Dashboard() {
               </div>
             ))}
           </div>
+        </div>
+      )}
 
+      {/* EDIT PUPIL MODAL */}
+      {editingPupil && (
+        <div className="no-print" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 50 }}>
+          <div style={{ background: "white", padding: "30px", borderRadius: "8px", width: "700px", maxWidth: "90%" }}>
+            <h2 style={{ marginTop: 0 }}>Edit Pupil</h2>
+            <form onSubmit={handleUpdatePupil}>
+              <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
+                <input type="text" value={editingPupil.first_name} onChange={(e) => setEditingPupil({...editingPupil, first_name: e.target.value})} style={{ flex: 1, padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+                <input type="text" value={editingPupil.last_initial} onChange={(e) => setEditingPupil({...editingPupil, last_initial: e.target.value.substring(0,1)})} style={{ width: "60px", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              </div>
+              
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ fontSize: "13px", fontWeight: "600", display: "block", marginBottom: "8px" }}>Reading Level</label>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px" }}>
+                  {READING_LEVELS.map(level => (
+                    <button type="button" key={level} onClick={() => setEditingPupil({...editingPupil, reading_level: level})} style={{ padding: "6px 4px", fontSize: "11px", borderRadius: "4px", cursor: "pointer", border: editingPupil.reading_level === level ? "2px solid #3b82f6" : "1px solid #d1d5db", background: editingPupil.reading_level === level ? "#eff6ff" : "white", color: editingPupil.reading_level === level ? "#1d4ed8" : "#4b5563", fontWeight: editingPupil.reading_level === level ? "bold" : "normal" }}>
+                      {level}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ fontSize: "13px", fontWeight: "600", display: "block", marginBottom: "5px" }}>Interests (Comma separated)</label>
+                <input type="text" value={editingPupil.interests || ""} onChange={(e) => setEditingPupil({...editingPupil, interests: e.target.value})} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              </div>
+
+              <div style={{ marginBottom: "25px", display: "flex", gap: "20px" }}>
+                <label><input type="checkbox" checked={editingPupil.is_send} onChange={(e) => setEditingPupil({...editingPupil, is_send: e.target.checked})} /> SEND</label>
+                <label><input type="checkbox" checked={editingPupil.is_eal} onChange={(e) => setEditingPupil({...editingPupil, is_eal: e.target.checked})} /> EAL</label>
+                <label><input type="checkbox" checked={editingPupil.is_pp} onChange={(e) => setEditingPupil({...editingPupil, is_pp: e.target.checked})} /> PP</label>
+              </div>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button type="button" onClick={() => setEditingPupil(null)} style={{ flex: 1, padding: "10px", background: "#e5e7eb", border: "none", borderRadius: "4px", cursor: "pointer" }}>Cancel</button>
+                <button type="submit" disabled={isUpdatingPupil} style={{ flex: 1, padding: "10px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT SKILL MODAL */}
+      {editingSkill && (
+        <div className="no-print" style={{ position: "fixed", top: 0, left: 0, width: "100%", height: "100%", background: "rgba(0,0,0,0.5)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 50 }}>
+          <div style={{ background: "white", padding: "30px", borderRadius: "8px", width: "400px", maxWidth: "90%" }}>
+            <h2 style={{ marginTop: 0 }}>Edit Skill</h2>
+            <form onSubmit={handleUpdateSkill}>
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", fontSize: "13px", marginBottom: "5px" }}>Subject</label>
+                <select value={editingSkill.subject} onChange={(e) => setEditingSkill({...editingSkill, subject: e.target.value})} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }}>
+                  <option value="Maths">Maths</option><option value="Writing">Writing</option><option value="Reading">Reading</option><option value="Spelling">Spelling</option><option value="Timestables">Timestables</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", fontSize: "13px", marginBottom: "5px" }}>Skill Name</label>
+                <input type="text" value={editingSkill.skill_name} onChange={(e) => setEditingSkill({...editingSkill, skill_name: e.target.value})} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              </div>
+              <div style={{ marginBottom: "25px" }}>
+                <label style={{ display: "block", fontSize: "13px", marginBottom: "5px" }}>Display Order</label>
+                <input type="number" value={editingSkill.display_order} onChange={(e) => setEditingSkill({...editingSkill, display_order: e.target.value})} style={{ width: "100%", padding: "8px", border: "1px solid #d1d5db", borderRadius: "4px" }} />
+              </div>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button type="button" onClick={() => setEditingSkill(null)} style={{ flex: 1, padding: "10px", background: "#e5e7eb", border: "none", borderRadius: "4px", cursor: "pointer" }}>Cancel</button>
+                <button type="submit" disabled={isUpdatingSkill} style={{ flex: 1, padding: "10px", background: "#d946ef", color: "white", border: "none", borderRadius: "4px", cursor: "pointer", fontWeight: "bold" }}>Save Changes</button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </>

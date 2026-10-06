@@ -109,7 +109,145 @@ export default function Dashboard() {
     if (savedKey) setIsKeySaved(true);
   }, [fetchDashboardData]);
 
-  // --- CORE FUNCTIONS (Routing & Generation) ---
+  const handleSelectAllPupils = () => {
+    if (wsSelectedPupils.length === pupils.length) setWsSelectedPupils([]);
+    else setWsSelectedPupils(pupils.map(p => p.id));
+  };
+  const handleSelectPupil = (id) => {
+    if (wsSelectedPupils.includes(id)) setWsSelectedPupils(wsSelectedPupils.filter(pid => pid !== id));
+    else setWsSelectedPupils([...wsSelectedPupils, id]);
+  };
+
+  const toggleSkillStatusMatrix = async (pupilId, skillId, currentStatus) => {
+    const cycle = { 'Not Yet': 'Practising', 'Practising': 'Achieved', 'Achieved': 'Not Yet' };
+    const nextStatus = cycle[currentStatus || 'Not Yet'] || 'Achieved';
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("pupil_progress").upsert({ user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus }, { onConflict: 'pupil_id,skill_id' });
+      fetchDashboardData(); 
+    } catch (error) { 
+      console.error(error); 
+    }
+  };
+
+  const handleAddPupil = async (e) => {
+    e.preventDefault();
+    if (!firstName || !lastInitial) return;
+    setIsPupilSubmitting(true);
+    try {
+      const combinedInterests = [interestOne, interestTwo, interestThree].filter(Boolean).join(", ");
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("pupils").insert({ 
+        user_id: userId, first_name: firstName, last_initial: lastInitial.toUpperCase(), 
+        gender: gender, is_send: isSend, is_eal: isEal, is_pp: isPp, 
+        interests: combinedInterests, reading_level: readingLevel
+      });
+      setPupilMessage("Pupil added.");
+      setFirstName(""); setLastInitial(""); setGender("Male"); setIsSend(false); setIsEal(false); setIsPp(false); 
+      setInterestOne(""); setInterestTwo(""); setInterestThree(""); setReadingLevel("Year 3 Expected");
+      fetchDashboardData();
+      setTimeout(() => setPupilMessage(""), 3000);
+    } catch (error) { 
+      setPupilMessage(`Error: ${error.message}`); 
+    } finally { 
+      setIsPupilSubmitting(false); 
+    }
+  };
+
+  const handleUpdatePupil = async (e) => {
+    e.preventDefault();
+    setIsUpdatingPupil(true);
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("pupils").update({
+        first_name: editingPupil.first_name, last_initial: editingPupil.last_initial.toUpperCase(),
+        gender: editingPupil.gender, is_send: editingPupil.is_send, is_eal: editingPupil.is_eal, is_pp: editingPupil.is_pp,
+        interests: editingPupil.interests, reading_level: editingPupil.reading_level
+      }).eq('id', editingPupil.id);
+      fetchDashboardData();
+      setEditingPupil(null);
+    } catch (error) { 
+      console.error(error); 
+    } finally { 
+      setIsUpdatingPupil(false); 
+    }
+  };
+
+  const handleDeletePupil = async (id) => {
+    if (!window.confirm("Delete this pupil permanently?")) return;
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("pupils").delete().eq('id', id);
+      fetchDashboardData();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleAddSkill = async (e) => {
+    e.preventDefault();
+    if (!newSkillName) return;
+    setIsSkillSubmitting(true);
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("curriculum_skills").insert({ user_id: userId, subject: newSubject, skill_name: newSkillName, display_order: parseInt(newDisplayOrder) });
+      setSkillMessage("Skill mapped.");
+      setNewSkillName(""); setNewDisplayOrder((prev) => parseInt(prev) + 1); 
+      fetchDashboardData();
+      setTimeout(() => setSkillMessage(""), 3000);
+    } catch (error) { 
+      setSkillMessage(`Error: ${error.message}`); 
+    } finally { 
+      setIsSkillSubmitting(false); 
+    }
+  };
+
+  const handleUpdateSkill = async (e) => {
+    e.preventDefault();
+    setIsUpdatingSkill(true);
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("curriculum_skills").update({ subject: editingSkill.subject, skill_name: editingSkill.skill_name, display_order: parseInt(editingSkill.display_order) }).eq('id', editingSkill.id);
+      fetchDashboardData(); setEditingSkill(null);
+    } catch (error) {
+      console.error(error);
+    } finally { 
+      setIsUpdatingSkill(false); 
+    }
+  };
+
+  const handleDeleteSkill = async (id) => {
+    if (!window.confirm("Delete this skill?")) return;
+    try {
+      const token = await getToken({ template: "supabase" });
+      const supabase = createClerkSupabaseClient(token);
+      await supabase.from("curriculum_skills").delete().eq('id', id);
+      fetchDashboardData();
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleSaveKey = (e) => { e.preventDefault(); if (!geminiKey.trim()) return; localStorage.setItem("gemini_api_key", geminiKey.trim()); setIsKeySaved(true); setGeminiKey(""); };
+
+  const toggleRecording = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) { setNoteMessage("Voice dictation is not supported in this browser."); return; }
+    if (isRecording) { setIsRecording(false); return; }
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false; recognition.interimResults = false;
+    recognition.onstart = () => { setIsRecording(true); };
+    recognition.onresult = (event) => { setNoteText((prev) => prev + (prev ? " " : "") + event.results[0][0].transcript); setIsRecording(false); };
+    recognition.onend = () => { setIsRecording(false); };
+    recognition.start();
+  };
+
   const executeDatabaseRoute = async (payload) => {
     setNoteMessage("Routing to database...");
     const token = await getToken({ template: "supabase" });
@@ -128,6 +266,7 @@ export default function Dashboard() {
     try {
       const mappedPupils = pupils.map(p => ({ id: p.id, name: `${p.first_name} ${p.last_initial}` }));
       const mappedSkills = skills.map(s => ({ id: s.id, subject: s.subject, skill: s.skill_name }));
+      
       const prompt = `Read the teacher's note. Map it to ONE pupil and ONE skill.
       Status Rules: 'Green'/'Mastered' = 'Achieved', 'Orange'/'Amber' = 'Practising', 'Red'/'Not yet' = 'Not Yet'. Default = 'Practising'.
       Fuzzy Match: Find the closest match. If uncertain, set "confidence" to "low".
@@ -138,21 +277,27 @@ export default function Dashboard() {
       const data = await response.json();
       const aiResult = JSON.parse(data.candidates[0].content.parts[0].text.replace(/```json/g, "").replace(/```/g, "").trim());
       
-      if (aiResult.confidence === "low") { setPendingVoiceRoute(aiResult); setNoteMessage(""); } 
-      else { await executeDatabaseRoute(aiResult); }
-    } catch { setNoteMessage("Routing failed."); } finally { setIsProcessingNote(false); }
+      if (aiResult.confidence === "low") {
+        setPendingVoiceRoute(aiResult); setNoteMessage("");
+      } else {
+        await executeDatabaseRoute(aiResult);
+      }
+    } catch { 
+      setNoteMessage("Routing failed."); 
+    } finally { 
+      setIsProcessingNote(false); 
+    }
   };
 
-  const toggleRecording = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setNoteMessage("Voice dictation is not supported in this browser."); return; }
-    if (isRecording) { setIsRecording(false); return; }
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false; recognition.interimResults = false;
-    recognition.onstart = () => { setIsRecording(true); };
-    recognition.onresult = (event) => { setNoteText((prev) => prev + (prev ? " " : "") + event.results[0][0].transcript); setIsRecording(false); };
-    recognition.onend = () => { setIsRecording(false); };
-    recognition.start();
+  const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
+  const cleanWorksheetMarkup = (rawHtml) => {
+    if (!rawHtml) return "";
+    let clean = rawHtml;
+    clean = clean.replace(/```html/gi, "").replace(/```/g, "");
+    clean = clean.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
+    clean = clean.replace(/\[FULL_LINE\]/gi, '<p class="write-line"></p>').replace(/\[ANSWER_LINE\]/gi, '<span class="short-line"></span>');
+    return clean;
   };
 
   const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
@@ -169,15 +314,6 @@ export default function Dashboard() {
     }
   };
 
-  const delay = (ms) => new Promise(res => setTimeout(res, ms));
-  const cleanWorksheetMarkup = (rawHtml) => {
-    if (!rawHtml) return "";
-    let clean = rawHtml;
-    clean = clean.replace(/```html/gi, "").replace(/```/g, "");
-    clean = clean.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1");
-    clean = clean.replace(/\[FULL_LINE\]/gi, '<p class="write-line"></p>').replace(/\[ANSWER_LINE\]/gi, '<span class="short-line"></span>');
-    return clean;
-  };
   const getTargetForSubject = (pupilId, subj) => {
     const subjSkills = skills.filter(s => s.subject === subj).sort((a,b) => a.display_order - b.display_order);
     if (subjSkills.length === 0) return { skill_name: "General Age-Appropriate Practice" };
@@ -189,7 +325,7 @@ export default function Dashboard() {
   const handleGenerateWorksheet = async () => {
     if (wsSelectedPupils.length === 0) { setWsMessage("Select at least one pupil."); return; }
     const apiKey = localStorage.getItem("gemini_api_key");
-    if (!apiKey) { setWsMessage("Missing API Key in settings."); return; }
+    if (!apiKey) { setWsMessage("Missing API Key in BYOK settings."); return; }
 
     const ledger = JSON.parse(localStorage.getItem("worksheet_ledger") || "{}");
     const todayStr = new Date().toISOString().split('T')[0];
@@ -198,9 +334,14 @@ export default function Dashboard() {
     for (const pid of wsSelectedPupils) {
       const pName = pupils.find(p => p.id === pid)?.first_name;
       if (ledger[`${pid}_${wsSubject}_${todayStr}`]) {
-        if (window.confirm(`You already generated a ${wsSubject} sheet for ${pName} today. Force Regenerate?`)) pupilsToProcess.push(pid);
-      } else { pupilsToProcess.push(pid); }
+        if (window.confirm(`You already generated a ${wsSubject} sheet for ${pName} today. Force Regenerate?`)) {
+          pupilsToProcess.push(pid);
+        }
+      } else {
+        pupilsToProcess.push(pid);
+      }
     }
+
     if (pupilsToProcess.length === 0) return;
 
     setIsGeneratingWs(true); setGeneratedSheets([]); setIsDocumentReady(false);
@@ -235,6 +376,7 @@ Immediately after the delimiter, write the comprehensive Answer Key in clear HTM
           const m = getTargetForSubject(pid, "Maths");
           const w = getTargetForSubject(pid, "Writing");
           const s = getTargetForSubject(pid, "Spelling");
+
           systemPrompt += `
 
 Create a complete Weekly Pack in EXACTLY this section order:
@@ -265,7 +407,6 @@ Create a complete Weekly Pack in EXACTLY this section order:
             const splitParts = rawText.split(ANSWER_KEY_DELIMITER);
             worksheetBody = splitParts[0]; answerKeyBody = splitParts[1];
           }
-
           setGeneratedSheets(prev => [...prev, { pupilName: targetPupil.first_name, subject: wsSubject, worksheet: cleanWorksheetMarkup(worksheetBody), answers: cleanWorksheetMarkup(answerKeyBody) }]);
         } catch (fetchErr) {
           if (fetchErr.message.includes('AbortError')) throw fetchErr;
@@ -276,7 +417,6 @@ Create a complete Weekly Pack in EXACTLY this section order:
         ledger[`${pid}_${wsSubject}_${todayStr}`] = true;
         if (completedCount < totalCalls) { setWsMessage(`Pacing requests (3s)...`); await delay(3000); }
       }
-      
       localStorage.setItem("worksheet_ledger", JSON.stringify(ledger));
       setIsDocumentReady(true); setWsMessage("Generation Complete.");
     } catch (error) { 
@@ -285,19 +425,6 @@ Create a complete Weekly Pack in EXACTLY this section order:
     } finally { setIsGeneratingWs(false); abortControllerRef.current = null; }
   };
 
-  // --- CRUD FUNCTIONS ---
-  const toggleSkillStatusMatrix = async (pupilId, skillId, currentStatus) => {
-    const cycle = { 'Not Yet': 'Practising', 'Practising': 'Achieved', 'Achieved': 'Not Yet' };
-    const nextStatus = cycle[currentStatus || 'Not Yet'] || 'Achieved';
-    try {
-      const token = await getToken({ template: "supabase" });
-      const supabase = createClerkSupabaseClient(token);
-      await supabase.from("pupil_progress").upsert({ user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus }, { onConflict: 'pupil_id,skill_id' });
-      fetchDashboardData(); 
-    } catch (error) { console.error(error); }
-  };
-
-  // --- ANALYTICS CALCULATIONS ---
   const getReadingStatus = (level, targetYear) => {
     if (!level) return "Below";
     const match = level.match(/Year (\d)/);
@@ -380,6 +507,13 @@ Create a complete Weekly Pack in EXACTLY this section order:
   let matrixSkills = skills;
   if (matrixFilters.subject !== "All") matrixSkills = skills.filter(s => s.subject === matrixFilters.subject);
 
+  const handleGenerateIntervention = () => {
+    const pupilIds = matrixPupils.map(p => p.id);
+    setWsSelectedPupils(pupilIds);
+    setWsSubject(matrixFilters.subject !== "All" ? matrixFilters.subject : "Weekly Pack");
+    setActiveTab("resources");
+  };
+
   return (
     <>
       <style dangerouslySetInnerHTML={{__html: `
@@ -432,8 +566,6 @@ Create a complete Weekly Pack in EXACTLY this section order:
             ========================================= */}
         {activeTab === "analytics" && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "30px" }}>
-            
-            {/* Left Column: Voice Note & Reading Benchmarks */}
             <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
               <div style={{ background: "#f0f9ff", border: "2px solid #bae6fd", padding: "25px", borderRadius: "8px" }}>
                 <h2 style={{ marginTop: 0, color: "#0369a1", marginBottom: "15px", display: "flex", alignItems: "center", gap: "8px" }}><span>🎙️</span> Voice Route</h2>
@@ -476,17 +608,14 @@ Create a complete Weekly Pack in EXACTLY this section order:
               </div>
             </div>
 
-            {/* Right Column: RAG Demographics Board */}
             <div style={{ background: "white", border: "1px solid #e5e7eb", padding: "25px", borderRadius: "8px" }}>
               <h2 style={{ marginTop: 0, color: "#374151", marginBottom: "25px" }}>🎯 Demographic Tracking (Achieved %)</h2>
-              
               <div style={{ display: "grid", gap: "25px" }}>
                 {SUBJECTS.map(subject => {
                   const all = calculateRAG(subject, "All");
                   const send = calculateRAG(subject, "SEND");
                   const pp = calculateRAG(subject, "PP");
                   const eal = calculateRAG(subject, "EAL");
-
                   return (
                     <div key={subject} style={{ borderBottom: "1px solid #f3f4f6", paddingBottom: "20px" }}>
                       <h3 style={{ margin: "0 0 10px 0", color: "#4f46e5" }}>{subject}</h3>
@@ -524,7 +653,10 @@ Create a complete Weekly Pack in EXACTLY this section order:
             {(matrixFilters.cohort !== "All" || matrixFilters.subject !== "All") && (
               <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", padding: "15px", borderRadius: "8px", marginBottom: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ color: "#1e3a8a", fontWeight: "bold" }}>🔍 Viewing Filtered Data: {matrixFilters.cohort} Cohort | {matrixFilters.subject} Skills</span>
-                <button onClick={() => { setActiveTab("analytics"); setMatrixFilters({cohort: "All", subject: "All"}); }} style={{ padding: "8px 16px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", fontWeight: "bold", cursor: "pointer" }}>⬅ Back to Analytics</button>
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button onClick={handleGenerateIntervention} style={{ padding: "8px 16px", background: "#10b981", color: "white", border: "none", borderRadius: "4px", fontWeight: "bold", cursor: "pointer" }}>✨ Generate Interventions</button>
+                  <button onClick={() => { setActiveTab("analytics"); setMatrixFilters({cohort: "All", subject: "All"}); }} style={{ padding: "8px 16px", background: "#3b82f6", color: "white", border: "none", borderRadius: "4px", fontWeight: "bold", cursor: "pointer" }}>⬅ Back</button>
+                </div>
               </div>
             )}
             
@@ -555,7 +687,7 @@ Create a complete Weekly Pack in EXACTLY this section order:
                   {matrixPupils.map(pupil => (
                     <tr key={pupil.id}>
                       <td className="matrix-td-left" style={{ cursor: "pointer" }} onClick={() => setEditingPupil(pupil)}>
-                        {pupil.first_name} {pupil.last_initial}. ✏️
+                        {pupil.first_name} {pupil.last_initial}. ✏️️
                       </td>
                       {matrixSkills.map(skill => {
                         const status = progress.find(pr => pr.pupil_id === pupil.id && pr.skill_id === skill.id)?.status || 'Not Yet';
@@ -630,7 +762,7 @@ Create a complete Weekly Pack in EXACTLY this section order:
                     <span>{wsMessage}</span>
                     <span>{wsCompletedTasks} / {wsTotalTasks}</span>
                   </div>
-                  <progress value={wsCompletedTasks} max={wsTotalTasks} style={{ width: "100%", height: "10px" }} />
+                  <progress value={wsCompletedTasks} max={wsTotalTasks || 1} style={{ width: "100%", height: "10px" }} />
                 </div>
               )}
 

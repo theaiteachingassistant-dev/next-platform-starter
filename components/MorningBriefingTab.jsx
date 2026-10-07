@@ -1,12 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '@clerk/nextjs';
-import { createClerkSupabaseClient } from '../utils/supabase';
 import { SUBJECTS } from '../utils/constants';
 
-export default function MorningBriefingTab({ pupils, curriculum, progress, setActiveTab }) {
-  const { getToken, userId } = useAuth();
+export default function MorningBriefingTab({ pupils, curriculum, progress, updateProgress, setActiveTab }) {
   const [currentYear, setCurrentYear] = useState(3);
   const [noteText, setNoteText] = useState("");
   const [isProcessingNote, setIsProcessingNote] = useState(false);
@@ -74,9 +71,7 @@ export default function MorningBriefingTab({ pupils, curriculum, progress, setAc
 
   const executeDatabaseRoute = async (payload) => {
     setNoteMessage("Routing to database...");
-    const token = await getToken({ template: "supabase" });
-    const supabase = createClerkSupabaseClient(token);
-    await supabase.from("pupil_progress").upsert({ user_id: userId, pupil_id: payload.pupil_id, skill_id: payload.skill_id, status: payload.status }, { onConflict: 'pupil_id,skill_id' });
+    await updateProgress(payload.pupil_id, payload.skill_id, payload.status);
     setNoteText(""); setPendingVoiceRoute(null);
     setNoteMessage(`Updated: ${payload.matched_pupil} - ${payload.matched_skill} (${payload.status})`);
     setTimeout(() => setNoteMessage(""), 4000);

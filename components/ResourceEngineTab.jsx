@@ -5,7 +5,7 @@ import { READING_LEVELS } from '../utils/constants';
 
 const ANSWER_KEY_DELIMITER = "|||START_OF_ANSWERS|||";
 
-export default function ResourceEngineTab({ pupils, addPupil, apiKey, curriculum, progress }) {
+export default function ResourceEngineTab({ pupils, addPupil, curriculum, progress }) {
   const [firstName, setFirstName] = useState("");
   const [lastInitial, setLastInitial] = useState("");
   const [gender, setGender] = useState("Male");
@@ -73,7 +73,6 @@ export default function ResourceEngineTab({ pupils, addPupil, apiKey, curriculum
 
   const handleGenerateWorksheet = async () => {
     if (wsSelectedPupils.length === 0) { setWsMessage("Select at least one pupil."); return; }
-    if (!apiKey) { setWsMessage("Missing API Key in BYOK settings."); return; }
     setIsGeneratingWs(true); setGeneratedSheets([]); setIsDocumentReady(false);
     abortControllerRef.current = new AbortController();
     setWsTotalTasks(wsSelectedPupils.length); setWsCompletedTasks(0);
@@ -95,10 +94,15 @@ export default function ResourceEngineTab({ pupils, addPupil, apiKey, curriculum
         }
 
         try {
-          const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: systemPrompt }] }], generationConfig: { temperature: 0.7 } }), signal: abortControllerRef.current.signal
+          const response = await fetchWithTimeout('/api/gemini', {
+            method: "POST", headers: { "Content-Type": "application/json" }, 
+            body: JSON.stringify({ prompt: systemPrompt, type: 'worksheet', requestCount: 1 }), 
+            signal: abortControllerRef.current.signal
           }, 60000); 
           const data = await response.json();
+          
+          if (data.error) throw new Error(data.error);
+          
           const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
           
           let worksheetBody = rawText, answerKeyBody = "Answer key not generated.";
@@ -109,7 +113,7 @@ export default function ResourceEngineTab({ pupils, addPupil, apiKey, curriculum
           setGeneratedSheets(prev => [...prev, { pupilName: targetPupil.first_name, subject: wsSubject, worksheet: cleanWorksheetMarkup(worksheetBody), answers: cleanWorksheetMarkup(answerKeyBody) }]);
         } catch (fetchErr) {
           if (fetchErr.message.includes('AbortError')) throw fetchErr;
-          setGeneratedSheets(prev => [...prev, { pupilName: targetPupil.first_name, subject: wsSubject, worksheet: `<div class="worksheet-section"><h3>Server Error</h3><p>${fetchErr.message}</p></div>`, answers: "<p>Unavailable</p>" }]);
+          throw fetchErr; // Pass the limit/paywall error back up to the main catch block
         }
         completedCount++; setWsCompletedTasks(completedCount);
         if (completedCount < wsSelectedPupils.length) { setWsMessage(`Pacing requests...`); await delay(3000); }

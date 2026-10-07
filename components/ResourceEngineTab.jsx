@@ -154,4 +154,75 @@ export default function ResourceEngineTab({ pupils, addPupil, apiKey, curriculum
             <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={isEal} onChange={e => setIsEal(e.target.checked)} className="rounded" /> EAL</label>
             <label className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={isPp} onChange={e => setIsPp(e.target.checked)} className="rounded" /> PP</label>
           </div>
-          <button type="submit" disabled={isPupilSubmitting} className="w-full py-3 bg-blue-50
+          <button type="submit" disabled={isPupilSubmitting} className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded-lg transition-colors mt-4">Add Pupil</button>
+        </form>
+      </div>
+
+      <div className="lg:col-span-2 bg-fuchsia-50 border-2 border-fuchsia-200 p-6 rounded-lg shadow-sm h-fit">
+        <h2 className="text-fuchsia-800 font-bold text-xl mb-4 flex items-center gap-2">📄 Batch Worksheet Engine</h2>
+        
+        {(isGeneratingWs || wsCompletedTasks > 0) && (
+          <div className="mb-5">
+            <div className="flex justify-between text-xs text-fuchsia-800 font-bold mb-2"><span>{wsMessage}</span><span>{wsCompletedTasks} / {wsTotalTasks}</span></div>
+            <progress value={wsCompletedTasks} max={wsTotalTasks || 1} className="w-full h-2.5 rounded-full overflow-hidden [&::-webkit-progress-bar]:bg-fuchsia-200 [&::-webkit-progress-value]:bg-fuchsia-600" />
+          </div>
+        )}
+
+        <div className="flex flex-col sm:flex-row gap-4 mb-5 h-[300px]">
+          <div className="flex-1 border border-fuchsia-300 rounded-lg bg-white flex flex-col overflow-hidden">
+            <div className="p-3 bg-fuchsia-50 border-b border-fuchsia-100 flex justify-between items-center">
+              <span className="text-sm font-bold text-fuchsia-800">Select Pupils ({wsSelectedPupils.length})</span>
+              <button onClick={handleSelectAllPupils} disabled={isGeneratingWs} className="text-xs font-bold text-fuchsia-600 hover:text-fuchsia-800">All</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {pupils.map(p => (
+                <label key={p.id} className="flex items-center gap-3 text-sm text-slate-700 cursor-pointer p-1 hover:bg-slate-50 rounded">
+                  <input type="checkbox" checked={wsSelectedPupils.includes(p.id)} onChange={() => handleSelectPupil(p.id)} disabled={isGeneratingWs} className="rounded text-fuchsia-600 focus:ring-fuchsia-500" />
+                  {p.first_name} {p.last_initial}.
+                </label>
+              ))}
+            </div>
+          </div>
+          <select value={wsSubject} onChange={e => setWsSubject(e.target.value)} disabled={isGeneratingWs} className="sm:w-64 p-3 border border-fuchsia-300 rounded-lg bg-white h-fit outline-none focus:ring-2 focus:ring-fuchsia-500 text-slate-700">
+            <option value="Weekly Pack">Weekly Pack (4 Subjects)</option><option value="Maths">Maths Only</option><option value="Writing">Writing Only</option><option value="Reading">Reading Only</option><option value="Spelling">Spelling Only</option><option value="Timestables">Timestables Only</option>
+          </select>
+        </div>
+
+        {isGeneratingWs ? (
+          <button onClick={() => abortControllerRef.current?.abort()} className="w-full py-3 bg-red-500 hover:bg-red-600 text-white font-bold rounded-lg transition-colors">Halt Generation</button>
+        ) : (
+          <button onClick={handleGenerateWorksheet} disabled={wsSelectedPupils.length === 0} className="w-full py-3 bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-bold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">Generate Resources</button>
+        )}
+
+        {isDocumentReady && !isGeneratingWs && generatedSheets.length > 0 && (
+          <button onClick={() => window.scrollTo(0, document.body.scrollHeight)} className="w-full py-3 mt-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors flex justify-center items-center gap-2"><span>✔</span> View Document Ready to Print</button>
+        )}
+      </div>
+
+      {generatedSheets.length > 0 && isDocumentReady && (
+        <div className="lg:col-span-3">
+          <div id="printable-document" className="max-w-[800px] mx-auto p-10 bg-white shadow-xl rounded-lg border border-slate-200 my-10">
+            <div className="no-print text-right mb-6">
+              <button onClick={() => window.print()} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors">🖨️ Print Document</button>
+            </div>
+            {generatedSheets.map((sheet, idx) => (
+              <div key={`ws-${idx}`} className={idx > 0 ? "pack-boundary" : ""}>
+                <div className="worksheet-pack mb-10">
+                  <div className="text-xl font-bold border-b-2 border-slate-800 pb-2 mb-6">{sheet.pupilName} | {sheet.subject}</div>
+                  <div dangerouslySetInnerHTML={{ __html: sheet.worksheet }} className="leading-relaxed text-[15px] text-slate-800" />
+                </div>
+              </div>
+            ))}
+            {generatedSheets.map((sheet, idx) => (
+              <div key={`ans-${idx}`} className="answer-page">
+                {idx === 0 && <h1 className="text-center text-2xl font-black border-b-4 border-slate-800 pb-3 mb-8 uppercase tracking-widest">Answer Keys</h1>}
+                <div className="text-lg font-bold border-b border-slate-400 pb-2 mb-4">{sheet.pupilName} | Answer Key ({sheet.subject})</div>
+                <div dangerouslySetInnerHTML={{ __html: sheet.answers }} className="text-sm text-slate-700 bg-slate-50 p-6 rounded-lg border border-slate-200 mb-8 leading-relaxed" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

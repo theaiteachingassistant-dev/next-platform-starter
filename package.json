@@ -1,5 +1,5 @@
 {
-  "name": "next-netlify-platform-starter",
+  "name": "ks2-command-center",
   "version": "0.1.0",
   "type": "module",
   "private": true,
@@ -12,19 +12,12 @@
   "dependencies": {
     "@clerk/nextjs": "latest",
     "@supabase/supabase-js": "latest",
-    "@netlify/blobs": "^10.7.13",
-    "blobshape": "^1.0.0",
-    "bright": "^1.0.0",
-    "markdown-to-jsx": "^7.7.16",
     "next": "^16.0.8",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "unique-names-generator": "^4.7.1"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.15",
-    "autoprefixer": "^10.4.19",
-    "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "9.39.5",
     "eslint-config-next": "^16.0.8",
     "postcss": "^8.4.36",

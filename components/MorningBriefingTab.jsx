@@ -79,37 +79,52 @@ export default function MorningBriefingTab({ pupils, curriculum, progress, updat
 
   const handleProcessNote = async () => {
     if (!noteText.trim()) return;
-    const apiKey = localStorage.getItem("gemini_api_key");
-    if (!apiKey) return;
     setIsProcessingNote(true); setPendingVoiceRoute(null);
     try {
       const mappedPupils = pupils.map(p => ({ id: p.id, name: `${p.first_name} ${p.last_initial}` }));
       const mappedSkills = curriculum.map(s => ({ id: s.id, subject: s.subject, skill: s.skill_name }));
       const prompt = `Read the teacher's note. Map it to ONE pupil and ONE skill. Status Rules: 'Green'/'Mastered' = 'Achieved', 'Orange'/'Amber' = 'Practising', 'Red'/'Not yet' = 'Not Yet'. Default = 'Practising'. Fuzzy Match: Find the closest match. If uncertain, set "confidence" to "low". Respond ONLY with raw JSON: { "pupil_id": "uuid", "skill_id": "uuid", "status": "Achieved/Practising/Not Yet", "confidence": "high/low", "matched_pupil": "Name", "matched_skill": "Skill" } Note: "${noteText}" Pupils: ${JSON.stringify(mappedPupils)} Skills: ${JSON.stringify(mappedSkills)}`;
       
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+      const response = await fetch('/api/gemini', { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ prompt, type: 'voice' }) 
+      });
       const data = await response.json();
+      
+      if (data.error) throw new Error(data.error);
+      
       const aiResult = JSON.parse(data.candidates[0].content.parts[0].text.replace(/```json/g, "").replace(/```/g, "").trim());
       
       if (aiResult.confidence === "low") { setPendingVoiceRoute(aiResult); setNoteMessage(""); } 
       else { await executeDatabaseRoute(aiResult); }
-    } catch { setNoteMessage("Routing failed."); } finally { setIsProcessingNote(false); }
+    } catch (err) { 
+      setNoteMessage(err.message || "Routing failed."); 
+    } finally { setIsProcessingNote(false); }
   };
 
   const handleAnalyzeClass = async () => {
-    const apiKey = localStorage.getItem("gemini_api_key");
-    if (!apiKey) { setAiAnalysis("API Key required in Settings to analyze class."); return; }
-    setIsAnalyzing(true);
+    setIsAnalyzing(true); setAiAnalysis("");
     try {
       const summaryData = SUBJECTS.map(subj => {
         const rag = calculateRAG(subj, "All");
         return `${subj}: ${rag.achieved}% Achieved, ${rag.practising}% Practising, ${rag.notYet}% Not Yet.`;
       }).join("\n");
       const prompt = `Analyze this primary class data against UK National Curriculum Year ${currentYear} expectations. \nData:\n${summaryData}\nProvide a 2-paragraph summary identifying the most pressing subject gap and one recommended teaching strategy. Do not use bold formatting.`;
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }) });
+      
+      const response = await fetch('/api/gemini', { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify({ prompt, type: 'analyze' }) 
+      });
       const data = await response.json();
+      
+      if (data.error) throw new Error(data.error);
+
       setAiAnalysis(data.candidates[0].content.parts[0].text.trim());
-    } catch { setAiAnalysis("Analysis failed."); } finally { setIsAnalyzing(false); }
+    } catch (err) { 
+      setAiAnalysis(err.message || "Analysis failed."); 
+    } finally { setIsAnalyzing(false); }
   };
 
   return (
@@ -134,7 +149,7 @@ export default function MorningBriefingTab({ pupils, curriculum, progress, updat
               <button onClick={handleProcessNote} disabled={isProcessingNote || !noteText.trim()} className="flex-1 px-4 py-2 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-lg transition-colors disabled:opacity-50">{isProcessingNote ? "Processing..." : "Route Note"}</button>
             </div>
           )}
-          {noteMessage && !pendingVoiceRoute && <p className={`mt-3 text-sm font-bold ${noteMessage.includes("Error") ? "text-red-500" : "text-sky-700"}`}>{noteMessage}</p>}
+          {noteMessage && !pendingVoiceRoute && <p className={`mt-3 text-sm font-bold ${noteMessage.includes("Error") || noteMessage.includes("limits") ? "text-red-600" : "text-sky-700"}`}>{noteMessage}</p>}
         </div>
 
         <div className="bg-white border border-slate-200 p-6 rounded-lg shadow-sm">

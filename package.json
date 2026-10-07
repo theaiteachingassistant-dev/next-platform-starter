@@ -11,19 +11,17 @@
   },
   "dependencies": {
     "@clerk/nextjs": "latest",
-    "@netlify/blobs": "^10.7.13",
     "@supabase/supabase-js": "latest",
-    "blobshape": "^1.0.0",
-    "bright": "^1.0.0",
-    "markdown-to-jsx": "^7.7.16",
     "next": "^16.0.8",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "unique-names-generator": "^4.7.1"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.15",
     "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "9.39.5",
-    "eslint-config-next": "^16.0.8"
+    "eslint-config-next": "^16.0.8",
+    "postcss": "^8.4.36",
+    "tailwindcss": "^4.1.15"
   }
 }

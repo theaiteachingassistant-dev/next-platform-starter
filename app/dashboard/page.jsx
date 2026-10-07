@@ -175,6 +175,7 @@ export default function DashboardOrchestrator() {
               pupils={pupils} 
               curriculum={curriculum} 
               progress={progress} 
+              updateProgress={updateProgress}
               setActiveTab={setActiveTab} 
             />
           )}
@@ -192,6 +193,8 @@ export default function DashboardOrchestrator() {
               pupils={pupils} 
               addPupil={addPupil} 
               apiKey={apiKey} 
+              curriculum={curriculum}
+              progress={progress}
             />
           )}
           {activeTab === 'curriculum-settings' && (

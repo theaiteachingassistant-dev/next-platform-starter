@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "stripe": "^14.0.0",
     "@clerk/nextjs": "latest",
     "@supabase/supabase-js": "latest",
     "next": "^16.0.8",

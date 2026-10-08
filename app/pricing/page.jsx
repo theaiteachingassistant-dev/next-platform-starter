@@ -36,12 +36,12 @@ export default function PricingPage() {
   ];
 
   // Define the feature list. The boolean array directly maps to the 4 tiers above (Basic, Basic Annual, Pro, Pro Annual)
-  const features = [
-    { name: 'Core AI Lesson Generation', access: [true, true, true, true] },
-    { name: 'Standard Resource Templates', access: [true, true, true, true] },
-    { name: 'Automated Marking Assistant', access: [false, false, true, true] },
-    { name: 'Custom AI Personas', access: [false, false, true, true] },
-    { name: 'Priority Server Processing', access: [false, false, true, true] },
+ const features = [
+    { name: 'KS2-Aligned AI Worksheet Generation', access: [true, true, true, true] },
+    { name: 'Standard Weekly Quota (60 Sheets)', access: [true, true, true, true] },
+    { name: 'Morning Briefing Voice Dictation', access: [true, true, true, true] },
+    { name: 'Unlimited Generations (150/day FUP)', access: [false, false, true, true] },
+    { name: 'Full Tactical Matrix Ecosystem', access: [false, false, true, true] },
   ];
 
   const CheckIcon = () => <span className="text-emerald-500 font-bold text-lg">✓</span>;

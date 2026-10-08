@@ -179,15 +179,32 @@ export default function DashboardOrchestrator() {
               setActiveTab={setActiveTab} 
             />
           )}
+
           {activeTab === 'tactical-matrix' && (
-            <TacticalMatrixTab 
-              pupils={pupils} 
-              curriculum={curriculum} 
-              progress={progress} 
-              updateProgress={updateProgress}
-              setActiveTab={setActiveTab} 
-            />
+            user.publicMetadata?.tier === 'pro' ? (
+              <TacticalMatrixTab 
+                pupils={pupils} 
+                curriculum={curriculum} 
+                progress={progress} 
+                updateProgress={updateProgress}
+                setActiveTab={setActiveTab} 
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-96 p-12 text-center bg-white rounded-xl border border-slate-200 shadow-sm mt-2">
+                <div className="bg-indigo-50 p-4 rounded-full mb-4">
+                  <span className="text-3xl">🔒</span>
+                </div>
+                <h2 className="text-2xl font-bold text-slate-900 mb-2">Pro Upgrade Required</h2>
+                <p className="text-slate-600 mb-8 max-w-md">
+                  The Tactical Matrix ecosystem is explicitly designed for high-level KS2 tracking. Upgrade to the Pro tier to unlock full data integration.
+                </p>
+                <a href="/pricing" className="bg-indigo-600 text-white px-8 py-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
+                  View Pro Plans
+                </a>
+              </div>
+            )
           )}
+
           {activeTab === 'resource-engine' && (
             <ResourceEngineTab 
               pupils={pupils} 
@@ -197,6 +214,7 @@ export default function DashboardOrchestrator() {
               progress={progress}
             />
           )}
+
           {activeTab === 'curriculum-settings' && (
             <CurriculumSettingsTab 
               curriculum={curriculum} 
@@ -206,8 +224,3 @@ export default function DashboardOrchestrator() {
             />
           )}
         </main>
-
-      </div>
-    </div>
-  );
-}

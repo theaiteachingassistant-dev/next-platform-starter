@@ -4,11 +4,11 @@ import { redirect } from 'next/navigation';
 export default async function DashboardLayout({ children }) {
   const user = await currentUser();
   
-  // Read the cryptographic badge applied by the Stripe Webhook
-  const isPro = user?.publicMetadata?.isPro === true;
+  // Read the updated cryptographic badge applied by the Stripe Webhook
+  const hasPaid = user?.publicMetadata?.hasPaid === true;
 
-  // If they have not paid, boot them back to the pricing matrix
-  if (!isPro) {
+  // If they have not paid for either tier, boot them back to the pricing matrix
+  if (!hasPaid) {
     redirect('/pricing');
   }
 

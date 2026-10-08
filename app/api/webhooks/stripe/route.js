@@ -7,13 +7,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
 export async function POST(req) {
-  // 1. Read the incoming message from Stripe
   const body = await req.text();
   const signature = headers().get('stripe-signature');
 
   let event;
-
-  // 2. Cryptographically verify the message is authentic
   try {
     event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
   } catch (err) {
@@ -21,21 +18,25 @@ export async function POST(req) {
     return new NextResponse(`Webhook Error: ${err.message}`, { status: 400 });
   }
 
-  // 3. If the payment was successful, upgrade the user
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
-    
-    // This is the specific Clerk User ID we securely passed to Stripe in the previous step
     const clerkUserId = session.client_reference_id; 
 
-    if (clerkUserId) {
+    if (clerkUserId && session.subscription) {
       try {
+        // Fetch the subscription details directly from Stripe to see exactly what they bought
+        const subscription = await stripe.subscriptions.retrieve(session.subscription);
+        const priceId = subscription.items.data[0].price.id;
+
+        // PASTE YOUR TWO PRO TIER PRICE IDs HERE:
+        const proPriceIds = ['price_1UMmu2F5h8YEG0YhuedRiwTJ', 'price_1UNvxoF5h8YEG0YhMuRLwJir'];
+        const isProTier = proPriceIds.includes(priceId);
+
         const client = await clerkClient();
-        
-        // This attaches a permanent "isPro: true" badge to their account
         await client.users.updateUserMetadata(clerkUserId, {
           publicMetadata: {
-            isPro: true,
+            hasPaid: true,
+            tier: isProTier ? 'pro' : 'basic',
             stripeCustomerId: session.customer,
             stripeSubscriptionId: session.subscription,
           }
@@ -46,6 +47,5 @@ export async function POST(req) {
     }
   }
 
-  // 4. Return a 200 OK so Stripe knows we received it
   return new NextResponse('Webhook processed successfully', { status: 200 });
 }

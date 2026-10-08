@@ -4,10 +4,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { useSession, useUser, UserButton } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 
-import MorningBriefingTab from '../components/MorningBriefingTab';
-import TacticalMatrixTab from '../components/TacticalMatrixTab';
-import ResourceEngineTab from '../components/ResourceEngineTab';
-import CurriculumSettingsTab from '../components/CurriculumSettingsTab';
+import MorningBriefingTab from '../../components/MorningBriefingTab';
+import TacticalMatrixTab from '../../components/TacticalMatrixTab';
+import ResourceEngineTab from '../../components/ResourceEngineTab';
+import CurriculumSettingsTab from '../../components/CurriculumSettingsTab';
 
 export default function DashboardOrchestrator() {
   const { session } = useSession();

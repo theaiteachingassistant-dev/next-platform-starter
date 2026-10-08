@@ -89,7 +89,6 @@ export default function DashboardOrchestrator() {
   };
 
   const updateProgress = async (pupilId, skillId, newStatus) => {
-    // Optimistic UI update
     const existingIndex = progress.findIndex(p => p.pupil_id === pupilId && p.skill_id === skillId);
     let newProgress = [...progress];
     
@@ -100,7 +99,6 @@ export default function DashboardOrchestrator() {
     }
     setProgress(newProgress);
 
-    // Database upsert
     const { error } = await supabase
       .from('pupil_progress')
       .upsert({ 
@@ -126,7 +124,6 @@ export default function DashboardOrchestrator() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* Global Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -138,7 +135,6 @@ export default function DashboardOrchestrator() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col md:flex-row gap-8">
         
-        {/* Navigation Sidebar */}
         <nav className="md:w-64 flex-shrink-0">
           <div className="bg-white rounded-lg border border-slate-200 p-2 shadow-sm sticky top-24 space-y-1">
             <button 
@@ -168,7 +164,6 @@ export default function DashboardOrchestrator() {
           </div>
         </nav>
 
-        {/* Dynamic Tab Content */}
         <main className="flex-1 min-w-0">
           {activeTab === 'morning-briefing' && (
             <MorningBriefingTab 
@@ -224,3 +219,8 @@ export default function DashboardOrchestrator() {
             />
           )}
         </main>
+
+      </div>
+    </div>
+  );
+}

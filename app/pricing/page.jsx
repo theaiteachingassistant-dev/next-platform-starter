@@ -29,9 +29,9 @@ export default function PricingPage() {
 
   // Replace the 'price_1...' strings below with your exact Stripe API IDs
   const tiers = [
-    { name: 'AI Assistant Basic', price: '£5', id: 'price_1UMlmHF5h8YEG0YhIpjH9D49' },
+    { name: 'AI Assistant Basic', price: '£4.99', id: 'price_1UMlmHF5h8YEG0YhIpjH9D49' },
     { name: 'Ai Assistant Basic', price: '£49', id: 'price_1UNvx6F5h8YEG0Yh4EDRT2V5' },
-    { name: 'AI Assistant Pro', price: '£10', id: 'price_1UMmu2F5h8YEG0YhuedRiwTJ' },
+    { name: 'AI Assistant Pro', price: '£9.99', id: 'price_1UMmu2F5h8YEG0YhuedRiwTJ' },
     { name: 'AI Assistant Pro', price: '£100', id: 'price_1UNvxoF5h8YEG0YhMuRLwJir' },
   ];
 

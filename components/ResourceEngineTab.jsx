@@ -21,16 +21,30 @@ export default function ResourceEngineTab() {
         body: JSON.stringify({ topic, yearGroup, differentiation }),
       });
 
-      if (!response.ok) throw new Error('Generation failed');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status} | Server Response: ${errorText || response.statusText}`);
+      }
       
       const data = await response.json();
       setOutput(data.resource);
+      
     } catch (error) {
       console.error(error);
-      setOutput('Error: Could not generate resource. Please try again.');
+      setOutput(`SYSTEM ERROR: ${error.message}`);
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleDownload = () => {
+    const element = document.createElement("a");
+    const file = new Blob([output], { type: 'text/plain' });
+    element.href = URL.createObjectURL(file);
+    element.download = `${topic.replace(/\s+/g, '_')}_Year${yearGroup}_Resource.txt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
   };
 
   return (
@@ -45,8 +59,9 @@ export default function ResourceEngineTab() {
               type="text" 
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. Fronted Adverbials, The Romans, Fractions..."
+              placeholder="e.g. Fronted Adverbials, The Romans..."
               className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              disabled={isGenerating}
             />
           </div>
           
@@ -56,6 +71,7 @@ export default function ResourceEngineTab() {
               value={yearGroup} 
               onChange={(e) => setYearGroup(e.target.value)}
               className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              disabled={isGenerating}
             >
               <option value="3">Year 3</option>
               <option value="4">Year 4</option>
@@ -72,11 +88,39 @@ export default function ResourceEngineTab() {
         >
           {isGenerating ? 'Synthesizing KS2 Resource...' : 'Generate Resource'}
         </button>
+
+        {/* PROGRESS BAR UI */}
+        {isGenerating && (
+          <div className="mt-6">
+            <div className="flex justify-between text-sm font-medium text-slate-600 mb-2">
+              <span>Aligning to National Curriculum...</span>
+              <span className="animate-pulse">Processing</span>
+            </div>
+            <div className="w-full bg-slate-200 rounded-full h-2.5 overflow-hidden">
+              <div className="bg-indigo-600 h-2.5 rounded-full w-full origin-left animate-[progress_3s_ease-in-out_infinite]"></div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {output && (
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 whitespace-pre-wrap font-sans text-slate-800 leading-relaxed">
-          {output}
+      {/* EXPORT ACTION BAR & PRINTABLE AREA */}
+      {output && !isGenerating && (
+        <div className="space-y-4">
+          <div className="flex justify-end gap-3">
+            <button onClick={() => navigator.clipboard.writeText(output)} className="px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100">
+              Copy Text
+            </button>
+            <button onClick={handleDownload} className="px-4 py-2 text-sm font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100">
+              Download .txt
+            </button>
+            <button onClick={() => window.print()} className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm">
+              Print Worksheet
+            </button>
+          </div>
+
+          <div id="printable-worksheet" className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 whitespace-pre-wrap font-sans text-slate-800 leading-relaxed">
+            {output}
+          </div>
         </div>
       )}
     </div>

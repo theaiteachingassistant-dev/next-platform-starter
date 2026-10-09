@@ -46,8 +46,12 @@ export default function CommandCenterTab() {
   const [selectedPupil, setSelectedPupil] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  
+  // Strict Error Surfacing States (Protocol 2)
   const [saveError, setSaveError] = useState(null);
+  const [columnError, setColumnError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isAddingSkill, setIsAddingSkill] = useState(false);
   
   // Data State
   const [pupils, setPupils] = useState([]);
@@ -57,7 +61,6 @@ export default function CommandCenterTab() {
 
   // New Skill Input State
   const [newSkillName, setNewSkillName] = useState('');
-  const [isAddingSkill, setIsAddingSkill] = useState(false);
 
   // New Pupil Form State
   const initialPupilState = {
@@ -67,15 +70,21 @@ export default function CommandCenterTab() {
   };
   const [newPupil, setNewPupil] = useState(initialPupilState);
 
+  // Initial Data Fetch
   useEffect(() => {
     if (userId && supabase) fetchDashboardData();
   }, [userId, supabase]);
+
+  // UI Transition State-Reset (Protocol 3): Wipes inputs when changing subject tabs
+  useEffect(() => {
+    setNewSkillName('');
+    setColumnError(null);
+  }, [activeTab]);
 
   const fetchDashboardData = async () => {
     if (!supabase) return;
     setIsLoading(true);
     
-    // Fetch all three core tables simultaneously 
     const [pupilsRes, skillsRes, progressRes] = await Promise.all([
       supabase.from('pupils').select('*').eq('user_id', userId).order('name', { ascending: true }),
       supabase.from('curriculum_skills').select('*').eq('user_id', userId).order('order_index', { ascending: true }),
@@ -131,20 +140,29 @@ export default function CommandCenterTab() {
     e.preventDefault();
     if (!newSkillName.trim() || !userId || !supabase) return;
     setIsAddingSkill(true);
+    setColumnError(null);
 
     const subjectSkills = skills.filter(s => s.subject === activeTab);
     const nextIndex = subjectSkills.length;
 
-    const { data, error } = await supabase
-      .from('curriculum_skills')
-      .insert([{ user_id: userId, subject: activeTab, skill_name: newSkillName.trim(), order_index: nextIndex }])
-      .select();
+    try {
+      const { data, error } = await supabase
+        .from('curriculum_skills')
+        .insert([{ user_id: userId, subject: activeTab, skill_name: newSkillName.trim(), order_index: nextIndex }])
+        .select();
 
-    if (data && !error) {
-      setSkills([...skills, data[0]]);
-      setNewSkillName('');
+      if (error) throw error;
+      
+      if (data) {
+        setSkills([...skills, data[0]]);
+        setNewSkillName(''); // Instantly wipe input on success
+      }
+    } catch (err) {
+      console.error("Add Skill Error:", err);
+      setColumnError(err.message || "Failed to add column.");
+    } finally {
+      setIsAddingSkill(false);
     }
-    setIsAddingSkill(false);
   };
 
   const handleCellCycle = async (pupilId, skillId) => {
@@ -153,11 +171,9 @@ export default function CommandCenterTab() {
     const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
     const currentStatus = existing ? existing.status : 'blank';
     
-    // The Zero-Friction Traffic Light Cycle
     const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
     const nextStatus = cycle[currentStatus];
     
-    // Optimistic UI Update (Instant visual feedback)
     let newProgress = [...progress];
     if (existing) {
       const index = newProgress.findIndex(p => p.id === existing.id);
@@ -167,7 +183,6 @@ export default function CommandCenterTab() {
     }
     setProgress(newProgress);
 
-    // Database Sync
     if (existing) {
       await supabase.from('pupil_progress').update({ status: nextStatus }).eq('id', existing.id);
     } else {
@@ -176,7 +191,6 @@ export default function CommandCenterTab() {
       }]).select();
       
       if (data) {
-         // Replace temp ID with real Supabase ID quietly in the background
          setProgress(prev => prev.map(p => (p.pupil_id === pupilId && p.skill_id === skillId) ? data[0] : p));
       }
     }
@@ -185,7 +199,6 @@ export default function CommandCenterTab() {
   const openPupilDrawer = (pupil) => { setSelectedPupil(pupil); setIsDrawerOpen(true); };
   const closeDrawer = () => { setIsDrawerOpen(false); setTimeout(() => setSelectedPupil(null), 300); };
 
-  // Helper to filter skills for the active tab
   const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
 
   return (
@@ -243,20 +256,28 @@ export default function CommandCenterTab() {
             {/* SUBJECT MATRIX TAB */}
             {activeTab !== 'master' && (
               <div className="h-full flex flex-col">
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-lg font-bold text-slate-800 capitalize">{activeTab.replace('-', ' ')}</h2>
-                  <form onSubmit={handleAddSkill} className="flex gap-2">
-                    <input 
-                      type="text" required
-                      value={newSkillName} 
-                      onChange={(e) => setNewSkillName(e.target.value)} 
-                      placeholder="New Column (e.g. Fractions)" 
-                      className="border border-slate-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-64"
-                    />
-                    <button type="submit" disabled={isAddingSkill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:bg-indigo-400">
-                      + Add Column
-                    </button>
-                  </form>
+                <div className="flex justify-between items-start mb-6">
+                  <h2 className="text-lg font-bold text-slate-800 capitalize mt-2">{activeTab.replace('-', ' ')}</h2>
+                  <div className="flex flex-col items-end">
+                    <form onSubmit={handleAddSkill} className="flex gap-2">
+                      <input 
+                        type="text" required
+                        value={newSkillName} 
+                        onChange={(e) => setNewSkillName(e.target.value)} 
+                        placeholder="New Column (e.g. Fractions)" 
+                        className="border border-slate-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-64"
+                      />
+                      <button type="submit" disabled={isAddingSkill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:bg-indigo-400">
+                        {isAddingSkill ? '...' : '+ Add Column'}
+                      </button>
+                    </form>
+                    {/* Error Banner Injection (Protocol 2) */}
+                    {columnError && (
+                      <div className="text-red-600 text-xs font-bold mt-2 bg-red-50 px-3 py-1.5 rounded border border-red-100">
+                        🚨 {columnError}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm">
@@ -444,7 +465,7 @@ export default function CommandCenterTab() {
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Year Group</label>
                     <select value={selectedPupil.year_group || '3'} onChange={(e) => handleProfileUpdate('year_group', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
-                      {['1','2','3','4','5','6'].map(y => <option key={y} value={y}>Year {y}</option>)}
+                      {['1','2','3','4','5','6'].map(y => <option key={y} value={y}</option>)}
                     </select>
                   </div>
                 </div>

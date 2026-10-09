@@ -5,7 +5,7 @@ import { useSession, useUser, UserButton } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 
 import MorningBriefingTab from '../../components/MorningBriefingTab';
-import TacticalMatrixTab from '../../components/TacticalMatrixTab';
+import CommandCenterTab from '@/components/CommandCenterTab';
 import ResourceEngineTab from '../../components/ResourceEngineTab';
 import CurriculumSettingsTab from '../../components/CurriculumSettingsTab';
 
@@ -157,10 +157,10 @@ export default function DashboardOrchestrator() {
               📊 Morning Briefing
             </button>
             <button 
-              onClick={() => setActiveTab('tactical-matrix')}
-              className={`w-full text-left px-4 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'tactical-matrix' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
+              onClick={() => setActiveTab('command-center')}
+              className={`w-full text-left px-4 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'command-center' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}
             >
-              🎯 Tactical Matrix
+              🎯 Command Center
             </button>
             <button 
               onClick={() => setActiveTab('resource-engine')}
@@ -182,9 +182,9 @@ export default function DashboardOrchestrator() {
             <MorningBriefingTab pupils={pupils} curriculum={curriculum} progress={progress} updateProgress={updateProgress} setActiveTab={setActiveTab} />
           )}
 
-          {activeTab === 'tactical-matrix' && (
+          {activeTab === 'command-center' && (
             user?.publicMetadata?.tier === 'pro' ? (
-              <TacticalMatrixTab pupils={pupils} curriculum={curriculum} progress={progress} updateProgress={updateProgress} setActiveTab={setActiveTab} />
+              <CommandCenterTab />
             ) : (
               <div className="flex flex-col items-center justify-center h-96 p-12 text-center bg-white rounded-xl border border-slate-200 shadow-sm mt-2">
                 <div className="bg-indigo-50 p-4 rounded-full mb-4"><span className="text-3xl">🔒</span></div>

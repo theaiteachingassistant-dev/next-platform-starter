@@ -1,13 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useAuth } from '@clerk/nextjs';
+import { useState, useEffect, useMemo } from 'react';
+import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
 
 // Unified Reading Age Options
 const READING_AGES = [
@@ -21,7 +16,32 @@ const READING_AGES = [
 
 export default function CommandCenterTab() {
   const { userId } = useAuth();
+  const { session } = useSession();
   
+  // Secure, Dynamic Supabase Client tied to Clerk Auth
+  const supabase = useMemo(() => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) return null;
+
+    return createClient(supabaseUrl, supabaseKey, {
+      global: {
+        fetch: async (url, options = {}) => {
+          try {
+            const clerkToken = await session?.getToken({ template: 'supabase' });
+            const headers = new Headers(options?.headers);
+            if (clerkToken) headers.set('Authorization', `Bearer ${clerkToken}`);
+            return fetch(url, { ...options, headers });
+          } catch (err) {
+            console.error('Clerk Token Error:', err);
+            throw err;
+          }
+        },
+      },
+    });
+  }, [session]);
+
   // Navigation & UI State
   const [activeTab, setActiveTab] = useState('master');
   const [selectedPupil, setSelectedPupil] = useState(null);
@@ -51,10 +71,11 @@ export default function CommandCenterTab() {
   const [newPupil, setNewPupil] = useState(initialPupilState);
 
   useEffect(() => {
-    if (userId) fetchPupils();
-  }, [userId]);
+    if (userId && supabase) fetchPupils();
+  }, [userId, supabase]);
 
   const fetchPupils = async () => {
+    if (!supabase) return;
     setIsLoading(true);
     const { data, error } = await supabase
       .from('pupils')
@@ -74,7 +95,7 @@ export default function CommandCenterTab() {
 
   const handleAddPupil = async (e) => {
     e.preventDefault();
-    if (!newPupil.name.trim() || !userId) return;
+    if (!newPupil.name.trim() || !userId || !supabase) return;
     
     setIsSaving(true);
     setSaveError(null);
@@ -112,6 +133,7 @@ export default function CommandCenterTab() {
   };
 
   const handleProfileUpdate = async (field, value) => {
+    if (!supabase) return;
     const updatedPupil = { ...selectedPupil, [field]: value };
     setSelectedPupil(updatedPupil);
     

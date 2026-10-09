@@ -5,7 +5,7 @@ import { useSession, useUser, UserButton } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 
 import MorningBriefingTab from '../../components/MorningBriefingTab';
-import CommandCenterTab from '@/components/CommandCenterTab';
+import CommandCenterTab from '../../components/CommandCenterTab';
 import ResourceEngineTab from '../../components/ResourceEngineTab';
 import CurriculumSettingsTab from '../../components/CurriculumSettingsTab';
 
@@ -22,7 +22,6 @@ export default function DashboardOrchestrator() {
   const [isLoading, setIsLoading] = useState(true);
   const [dbError, setDbError] = useState(null);
 
-  // 1. Safe Initialization: Validates keys before attempting a connection
   const supabase = useMemo(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -49,7 +48,6 @@ export default function DashboardOrchestrator() {
     });
   }, [session]);
 
-  // 2. Fortified Data Fetching: Catches rejections without crashing the page
   useEffect(() => {
     if (!user || !supabase) return;
     
@@ -113,7 +111,6 @@ export default function DashboardOrchestrator() {
     if (error) setDbError(error.message);
   };
 
-  // 3. Diagnostic UI: Renders exactly why the app is failing
   if (dbError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">

@@ -28,14 +28,17 @@ export default function CommandCenterTab() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   
   // Data State
   const [pupils, setPupils] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // New Pupil Form State
-  const [newPupil, setNewPupil] = useState({
+  const initialPupilState = {
     name: '',
+    surname_initial: '',
+    gender: 'Neutral',
     year_group: '3',
     reading_age: 'Year 3',
     reading_tier: 'Expected',
@@ -44,7 +47,8 @@ export default function CommandCenterTab() {
     send_type: '',
     is_pp: false,
     is_eal: false
-  });
+  };
+  const [newPupil, setNewPupil] = useState(initialPupilState);
 
   useEffect(() => {
     if (userId) fetchPupils();
@@ -62,29 +66,39 @@ export default function CommandCenterTab() {
     setIsLoading(false);
   };
 
+  const closeAddModal = () => {
+    setIsAddModalOpen(false);
+    setSaveError(null);
+    setNewPupil(initialPupilState); // Wipe memory
+  };
+
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!newPupil.name.trim() || !userId) return;
+    
     setIsSaving(true);
+    setSaveError(null);
 
     const pupilData = { ...newPupil, user_id: userId };
     
-    const { data, error } = await supabase
-      .from('pupils')
-      .insert([pupilData])
-      .select();
+    try {
+      const { data, error } = await supabase
+        .from('pupils')
+        .insert([pupilData])
+        .select();
 
-    if (data && !error) {
-      setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
-      setIsAddModalOpen(false);
-      setNewPupil({
-        name: '', year_group: '3', reading_age: 'Year 3', reading_tier: 'Expected', 
-        interests: '', is_send: false, send_type: '', is_pp: false, is_eal: false
-      });
-    } else {
-      console.error("Failed to add pupil:", error);
+      if (error) throw error;
+
+      if (data) {
+        setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
+        closeAddModal();
+      }
+    } catch (error) {
+      console.error("Database Error:", error);
+      setSaveError(error.message || "Failed to connect to Supabase.");
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   const openPupilDrawer = (pupil) => {
@@ -111,7 +125,6 @@ export default function CommandCenterTab() {
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 pb-20 relative">
-      {/* HEADER */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Tactical Command Center</h1>
@@ -131,14 +144,12 @@ export default function CommandCenterTab() {
         )}
       </header>
 
-      {/* MAIN CONTENT AREA */}
       <main className="flex-1 overflow-auto p-6">
         {isLoading ? (
           <div className="flex justify-center items-center h-full text-slate-400 font-medium">Loading Roster...</div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-full">
             
-            {/* MASTER TAB VIEW */}
             {activeTab === 'master' && (
               <div>
                 <div className="flex justify-between items-center mb-6">
@@ -164,7 +175,7 @@ export default function CommandCenterTab() {
                         onClick={() => openPupilDrawer(pupil)}
                         className="w-full text-left px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors font-semibold text-slate-700 flex justify-between items-center"
                       >
-                        <span>{pupil.name}</span>
+                        <span>{pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}</span>
                         <span className="text-xs px-2 py-1 bg-white rounded border border-slate-200 text-slate-500">
                           {pupil.reading_age || 'Age Pending'} • {pupil.reading_tier || 'Tier Pending'}
                         </span>
@@ -175,7 +186,6 @@ export default function CommandCenterTab() {
               </div>
             )}
 
-            {/* SUBJECT TABS PLACEHOLDER (Will become interactive grids in Phase 3) */}
             {activeTab !== 'master' && (
               <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl h-full flex flex-col items-center justify-center">
                 <p className="text-slate-500 font-bold mb-2 text-lg">Interactive Matrix Placeholder</p>
@@ -186,7 +196,6 @@ export default function CommandCenterTab() {
         )}
       </main>
 
-      {/* BOTTOM NAVIGATION TABS */}
       <nav className="fixed bottom-0 w-full bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
         <div className="max-w-6xl mx-auto flex justify-between px-2">
           {[
@@ -219,13 +228,20 @@ export default function CommandCenterTab() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
               <h3 className="font-extrabold text-lg text-slate-800">Add New Pupil</h3>
-              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
+              <button onClick={closeAddModal} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
             </div>
             
             <form id="add-pupil-form" onSubmit={handleAddPupil} className="flex flex-col overflow-hidden">
               <div className="p-6 overflow-y-auto space-y-5">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
+                
+                {saveError && (
+                  <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded-lg text-sm font-medium">
+                    🚨 {saveError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-8">
                     <label className="block text-xs font-bold text-slate-700 mb-1">First Name *</label>
                     <input 
                       type="text" required
@@ -233,6 +249,29 @@ export default function CommandCenterTab() {
                       className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                       placeholder="e.g. Leo"
                     />
+                  </div>
+                  <div className="col-span-4">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Initial</label>
+                    <input 
+                      type="text" maxLength="1"
+                      value={newPupil.surname_initial} onChange={(e) => setNewPupil({...newPupil, surname_initial: e.target.value.toUpperCase()})}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 text-center"
+                      placeholder="M"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Gender</label>
+                    <select 
+                      value={newPupil.gender} onChange={(e) => setNewPupil({...newPupil, gender: e.target.value})}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="Boy">Boy</option>
+                      <option value="Girl">Girl</option>
+                      <option value="Neutral">Neutral/Other</option>
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Year Group</label>
@@ -296,9 +335,8 @@ export default function CommandCenterTab() {
                 </div>
               </div>
               
-              {/* FORM FOOTER - Safely inside the <form> tags */}
               <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3 justify-end">
-                <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-600 hover:text-slate-800">
+                <button type="button" onClick={closeAddModal} className="px-5 py-2.5 text-sm font-bold text-slate-600 hover:text-slate-800">
                   Cancel
                 </button>
                 <button type="submit" disabled={isSaving} className={`px-5 py-2.5 text-white rounded-lg text-sm font-bold transition-colors ${isSaving ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
@@ -317,12 +355,11 @@ export default function CommandCenterTab() {
         {selectedPupil && (
           <div className="p-6 pb-24">
             <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-100">
-              <h2 className="text-2xl font-extrabold text-slate-800">{selectedPupil.name}</h2>
+              <h2 className="text-2xl font-extrabold text-slate-800">{selectedPupil.name} {selectedPupil.surname_initial ? `${selectedPupil.surname_initial}.` : ''}</h2>
               <button onClick={closeDrawer} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
             </div>
 
             <div className="space-y-6">
-              {/* READING ENGINE SETTINGS */}
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 space-y-4">
                 <h3 className="font-bold text-indigo-900 text-sm uppercase tracking-wider flex items-center gap-2">
                   📖 Reading Engine Calibration
@@ -355,12 +392,36 @@ export default function CommandCenterTab() {
                 </div>
               </div>
 
-              {/* CONTEXT VARIABLES */}
               <div className="space-y-4">
                 <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider border-b border-slate-100 pb-2">Context Variables</h3>
                 
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">Gender</label>
+                    <select 
+                      value={selectedPupil.gender || 'Neutral'} 
+                      onChange={(e) => handleProfileUpdate('gender', e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="Boy">Boy</option>
+                      <option value="Girl">Girl</option>
+                      <option value="Neutral">Neutral/Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">Year Group</label>
+                    <select 
+                      value={selectedPupil.year_group || '3'} 
+                      onChange={(e) => handleProfileUpdate('year_group', e.target.value)}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {['1','2','3','4','5','6'].map(y => <option key={y} value={y}>Year {y}</option>)}
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">3 Key Interests (For AI Reasoning Questions)</label>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">3 Key Interests</label>
                   <input 
                     type="text" 
                     value={selectedPupil.interests || ''}

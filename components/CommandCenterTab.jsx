@@ -9,6 +9,16 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+// Unified Reading Age Options
+const READING_AGES = [
+  'Phonics Phase 1 (Sound Awareness)',
+  'Phonics Phase 2 (Letter Sounds)',
+  'Phonics Phase 3 (Digraphs & Trigraphs)',
+  'Phonics Phase 4 (Blending Clusters)',
+  'Phonics Phase 5 (Alternative Spellings)',
+  'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'
+];
+
 export default function CommandCenterTab() {
   const { userId } = useAuth();
   
@@ -17,6 +27,7 @@ export default function CommandCenterTab() {
   const [selectedPupil, setSelectedPupil] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
   // Data State
   const [pupils, setPupils] = useState([]);
@@ -54,6 +65,7 @@ export default function CommandCenterTab() {
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!newPupil.name.trim() || !userId) return;
+    setIsSaving(true);
 
     const pupilData = { ...newPupil, user_id: userId };
     
@@ -72,6 +84,7 @@ export default function CommandCenterTab() {
     } else {
       console.error("Failed to add pupil:", error);
     }
+    setIsSaving(false);
   };
 
   const openPupilDrawer = (pupil) => {
@@ -124,17 +137,12 @@ export default function CommandCenterTab() {
           <div className="flex justify-center items-center h-full text-slate-400 font-medium">Loading Roster...</div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-full">
-            {activeTab === 'master' && (
-              <div className="text-center text-slate-500 py-20">
-                <h3 className="text-lg font-bold text-slate-700 mb-2">Staging Area Empty</h3>
-                <p>Switch to a subject tab to mark deficits and stage interventions.</p>
-              </div>
-            )}
             
-            {activeTab !== 'master' && (
+            {/* MASTER TAB VIEW */}
+            {activeTab === 'master' && (
               <div>
                 <div className="flex justify-between items-center mb-6">
-                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Class Roster</p>
+                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Class Roster (Master View)</p>
                   <button 
                     onClick={() => setIsAddModalOpen(true)}
                     className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
@@ -164,6 +172,14 @@ export default function CommandCenterTab() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* SUBJECT TABS PLACEHOLDER (Will become interactive grids in Phase 3) */}
+            {activeTab !== 'master' && (
+              <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl h-full flex flex-col items-center justify-center">
+                <p className="text-slate-500 font-bold mb-2 text-lg">Interactive Matrix Placeholder</p>
+                <p className="text-slate-400 max-w-md">The drag-and-drop traffic light grid for {activeTab.toUpperCase()} will be deployed here in Phase 3.</p>
               </div>
             )}
           </div>
@@ -206,8 +222,8 @@ export default function CommandCenterTab() {
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1">
-              <form id="add-pupil-form" onSubmit={handleAddPupil} className="space-y-5">
+            <form id="add-pupil-form" onSubmit={handleAddPupil} className="flex flex-col overflow-hidden">
+              <div className="p-6 overflow-y-auto space-y-5">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">First Name *</label>
@@ -236,7 +252,7 @@ export default function CommandCenterTab() {
                       value={newPupil.reading_age} onChange={(e) => setNewPupil({...newPupil, reading_age: e.target.value})}
                       className="w-full p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
                     >
-                      {['Phonics Phase 1', 'Phonics Phase 2', 'Phonics Phase 3', 'Phonics Phase 4', 'Phonics Phase 5', 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'].map(age => (
+                      {READING_AGES.map(age => (
                         <option key={age} value={age}>{age}</option>
                       ))}
                     </select>
@@ -278,13 +294,18 @@ export default function CommandCenterTab() {
                     <span className="text-xs font-bold text-slate-700">PP</span>
                   </label>
                 </div>
-              </form>
-            </div>
-            
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3 justify-end">
-              <button onClick={() => setIsAddModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-600 hover:text-slate-800">Cancel</button>
-              <button type="submit" form="add-pupil-form" className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700">Save Pupil</button>
-            </div>
+              </div>
+              
+              {/* FORM FOOTER - Safely inside the <form> tags */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3 justify-end">
+                <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-600 hover:text-slate-800">
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSaving} className={`px-5 py-2.5 text-white rounded-lg text-sm font-bold transition-colors ${isSaving ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                  {isSaving ? 'Saving...' : 'Save Pupil'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -314,7 +335,7 @@ export default function CommandCenterTab() {
                     onChange={(e) => handleProfileUpdate('reading_age', e.target.value)}
                     className="w-full p-2.5 bg-white border border-indigo-200 rounded-lg text-sm font-medium focus:ring-2 focus:ring-indigo-500"
                   >
-                    {['Phonics Phase 1', 'Phonics Phase 2', 'Phonics Phase 3', 'Phonics Phase 4', 'Phonics Phase 5', 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'].map(age => (
+                    {READING_AGES.map(age => (
                       <option key={age} value={age}>{age}</option>
                     ))}
                   </select>

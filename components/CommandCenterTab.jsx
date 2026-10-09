@@ -47,7 +47,7 @@ export default function CommandCenterTab() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   
-  // Strict Error Surfacing States (Protocol 2)
+  // Strict Error Surfacing States
   const [saveError, setSaveError] = useState(null);
   const [columnError, setColumnError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -75,7 +75,7 @@ export default function CommandCenterTab() {
     if (userId && supabase) fetchDashboardData();
   }, [userId, supabase]);
 
-  // UI Transition State-Reset (Protocol 3): Wipes inputs when changing subject tabs
+  // UI Transition State-Reset: Wipes inputs when changing subject tabs
   useEffect(() => {
     setNewSkillName('');
     setColumnError(null);
@@ -155,7 +155,7 @@ export default function CommandCenterTab() {
       
       if (data) {
         setSkills([...skills, data[0]]);
-        setNewSkillName(''); // Instantly wipe input on success
+        setNewSkillName('');
       }
     } catch (err) {
       console.error("Add Skill Error:", err);
@@ -271,7 +271,6 @@ export default function CommandCenterTab() {
                         {isAddingSkill ? '...' : '+ Add Column'}
                       </button>
                     </form>
-                    {/* Error Banner Injection (Protocol 2) */}
                     {columnError && (
                       <div className="text-red-600 text-xs font-bold mt-2 bg-red-50 px-3 py-1.5 rounded border border-red-100">
                         🚨 {columnError}
@@ -465,7 +464,7 @@ export default function CommandCenterTab() {
                   <div>
                     <label className="block text-xs font-bold text-slate-600 mb-1">Year Group</label>
                     <select value={selectedPupil.year_group || '3'} onChange={(e) => handleProfileUpdate('year_group', e.target.value)} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
-                      {['1','2','3','4','5','6'].map(y => <option key={y} value={y}</option>)}
+                      {['1','2','3','4','5','6'].map(y => <option key={y} value={y}>Year {y}</option>)}
                     </select>
                   </div>
                 </div>

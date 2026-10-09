@@ -16,10 +16,24 @@ export default function CommandCenterTab() {
   const [activeTab, setActiveTab] = useState('master');
   const [selectedPupil, setSelectedPupil] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   
   // Data State
   const [pupils, setPupils] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // New Pupil Form State
+  const [newPupil, setNewPupil] = useState({
+    name: '',
+    year_group: '3',
+    reading_age: 'Year 3',
+    reading_tier: 'Expected',
+    interests: '',
+    is_send: false,
+    send_type: '',
+    is_pp: false,
+    is_eal: false
+  });
 
   useEffect(() => {
     if (userId) fetchPupils();
@@ -37,6 +51,29 @@ export default function CommandCenterTab() {
     setIsLoading(false);
   };
 
+  const handleAddPupil = async (e) => {
+    e.preventDefault();
+    if (!newPupil.name.trim() || !userId) return;
+
+    const pupilData = { ...newPupil, user_id: userId };
+    
+    const { data, error } = await supabase
+      .from('pupils')
+      .insert([pupilData])
+      .select();
+
+    if (data && !error) {
+      setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
+      setIsAddModalOpen(false);
+      setNewPupil({
+        name: '', year_group: '3', reading_age: 'Year 3', reading_tier: 'Expected', 
+        interests: '', is_send: false, send_type: '', is_pp: false, is_eal: false
+      });
+    } else {
+      console.error("Failed to add pupil:", error);
+    }
+  };
+
   const openPupilDrawer = (pupil) => {
     setSelectedPupil(pupil);
     setIsDrawerOpen(true);
@@ -44,14 +81,13 @@ export default function CommandCenterTab() {
 
   const closeDrawer = () => {
     setIsDrawerOpen(false);
-    setTimeout(() => setSelectedPupil(null), 300); // Wait for transition
+    setTimeout(() => setSelectedPupil(null), 300);
   };
 
   const handleProfileUpdate = async (field, value) => {
     const updatedPupil = { ...selectedPupil, [field]: value };
     setSelectedPupil(updatedPupil);
     
-    // Optimistic UI update
     setPupils(pupils.map(p => p.id === updatedPupil.id ? updatedPupil : p));
 
     await supabase
@@ -61,7 +97,7 @@ export default function CommandCenterTab() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50 pb-20">
+    <div className="flex flex-col h-screen bg-slate-50 pb-20 relative">
       {/* HEADER */}
       <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10">
         <div>
@@ -72,6 +108,7 @@ export default function CommandCenterTab() {
             {activeTab === 'writing' && 'Writing & Grammar Matrix'}
             {activeTab === 'reading' && 'Reading Comprehension Matrix'}
             {activeTab === 'spelling' && 'Spelling & Phonics Matrix'}
+            {activeTab === 'times-tables' && 'Times Tables Matrix'}
           </p>
         </div>
         {activeTab === 'master' && (
@@ -87,7 +124,6 @@ export default function CommandCenterTab() {
           <div className="flex justify-center items-center h-full text-slate-400 font-medium">Loading Roster...</div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-full">
-            {/* Placeholder for the matrices. We will inject the draggable grids here in Phase 3 */}
             {activeTab === 'master' && (
               <div className="text-center text-slate-500 py-20">
                 <h3 className="text-lg font-bold text-slate-700 mb-2">Staging Area Empty</h3>
@@ -95,22 +131,39 @@ export default function CommandCenterTab() {
               </div>
             )}
             
-            {/* Subject Tabs Placeholder - Renders list of clickable pupils for now to test the drawer */}
             {activeTab !== 'master' && (
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-slate-500 mb-4 uppercase tracking-wider">Class Roster</p>
-                {pupils.map(pupil => (
+              <div>
+                <div className="flex justify-between items-center mb-6">
+                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Class Roster</p>
                   <button 
-                    key={pupil.id}
-                    onClick={() => openPupilDrawer(pupil)}
-                    className="w-full text-left px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors font-semibold text-slate-700 flex justify-between items-center"
+                    onClick={() => setIsAddModalOpen(true)}
+                    className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors"
                   >
-                    <span>{pupil.name}</span>
-                    <span className="text-xs px-2 py-1 bg-white rounded border border-slate-200 text-slate-500">
-                      {pupil.reading_age || 'Age Pending'} • {pupil.reading_tier || 'Tier Pending'}
-                    </span>
+                    + Add Pupil
                   </button>
-                ))}
+                </div>
+                
+                {pupils.length === 0 ? (
+                  <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl">
+                    <p className="text-slate-500 font-medium">No pupils in roster.</p>
+                    <p className="text-sm text-slate-400 mt-1">Click '+ Add Pupil' to build your class.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {pupils.map(pupil => (
+                      <button 
+                        key={pupil.id}
+                        onClick={() => openPupilDrawer(pupil)}
+                        className="w-full text-left px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors font-semibold text-slate-700 flex justify-between items-center"
+                      >
+                        <span>{pupil.name}</span>
+                        <span className="text-xs px-2 py-1 bg-white rounded border border-slate-200 text-slate-500">
+                          {pupil.reading_age || 'Age Pending'} • {pupil.reading_tier || 'Tier Pending'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -119,13 +172,14 @@ export default function CommandCenterTab() {
 
       {/* BOTTOM NAVIGATION TABS */}
       <nav className="fixed bottom-0 w-full bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-        <div className="max-w-4xl mx-auto flex justify-between px-2">
+        <div className="max-w-6xl mx-auto flex justify-between px-2">
           {[
-            { id: 'master', label: 'Master Tab', icon: '🎯' },
+            { id: 'master', label: 'Master', icon: '🎯' },
             { id: 'maths', label: 'Maths', icon: '➗' },
             { id: 'writing', label: 'Writing', icon: '✍️' },
             { id: 'reading', label: 'Reading', icon: '📖' },
-            { id: 'spelling', label: 'Spelling', icon: '🔤' }
+            { id: 'spelling', label: 'Spelling', icon: '🔤' },
+            { id: 'times-tables', label: 'Times Tables', icon: '✖️' }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -137,18 +191,110 @@ export default function CommandCenterTab() {
               }`}
             >
               <span className="text-xl">{tab.icon}</span>
-              <span className="text-xs font-bold">{tab.label}</span>
+              <span className="text-xs font-bold whitespace-nowrap">{tab.label}</span>
             </button>
           ))}
         </div>
       </nav>
+
+      {/* ADD PUPIL MODAL */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-extrabold text-lg text-slate-800">Add New Pupil</h3>
+              <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto flex-1">
+              <form id="add-pupil-form" onSubmit={handleAddPupil} className="space-y-5">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">First Name *</label>
+                    <input 
+                      type="text" required
+                      value={newPupil.name} onChange={(e) => setNewPupil({...newPupil, name: e.target.value})}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      placeholder="e.g. Leo"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">Year Group</label>
+                    <select 
+                      value={newPupil.year_group} onChange={(e) => setNewPupil({...newPupil, year_group: e.target.value})}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {['1','2','3','4','5','6'].map(y => <option key={y} value={y}>Year {y}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-indigo-800 mb-1">Reading Age</label>
+                    <select 
+                      value={newPupil.reading_age} onChange={(e) => setNewPupil({...newPupil, reading_age: e.target.value})}
+                      className="w-full p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
+                    >
+                      {['Phonics Phase 1', 'Phonics Phase 2', 'Phonics Phase 3', 'Phonics Phase 4', 'Phonics Phase 5', 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'].map(age => (
+                        <option key={age} value={age}>{age}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-indigo-800 mb-1">Reading Tier</label>
+                    <select 
+                      value={newPupil.reading_tier} onChange={(e) => setNewPupil({...newPupil, reading_tier: e.target.value})}
+                      className="w-full p-2.5 border border-indigo-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 bg-white"
+                    >
+                      <option value="Working Towards">Working Towards (WTS)</option>
+                      <option value="Expected">Expected (EXP)</option>
+                      <option value="Higher">Higher / Greater Depth (GDS)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">3 Key Interests (For AI Context)</label>
+                  <input 
+                    type="text" 
+                    value={newPupil.interests} onChange={(e) => setNewPupil({...newPupil, interests: e.target.value})}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    placeholder="e.g. Minecraft, football, baking"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <label className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100">
+                    <input type="checkbox" checked={newPupil.is_send} onChange={(e) => setNewPupil({...newPupil, is_send: e.target.checked})} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                    <span className="text-xs font-bold text-slate-700">SEND</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100">
+                    <input type="checkbox" checked={newPupil.is_eal} onChange={(e) => setNewPupil({...newPupil, is_eal: e.target.checked})} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                    <span className="text-xs font-bold text-slate-700">EAL</span>
+                  </label>
+                  <label className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100">
+                    <input type="checkbox" checked={newPupil.is_pp} onChange={(e) => setNewPupil({...newPupil, is_pp: e.target.checked})} className="rounded text-indigo-600 focus:ring-indigo-500" />
+                    <span className="text-xs font-bold text-slate-700">PP</span>
+                  </label>
+                </div>
+              </form>
+            </div>
+            
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex gap-3 justify-end">
+              <button onClick={() => setIsAddModalOpen(false)} className="px-5 py-2.5 text-sm font-bold text-slate-600 hover:text-slate-800">Cancel</button>
+              <button type="submit" form="add-pupil-form" className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700">Save Pupil</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PUPIL PROFILE DRAWER (SLIDES FROM RIGHT) */}
       <div className={`fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-30 transition-opacity duration-300 ${isDrawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={closeDrawer}></div>
       
       <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl z-40 transform transition-transform duration-300 ease-in-out overflow-y-auto ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         {selectedPupil && (
-          <div className="p-6">
+          <div className="p-6 pb-24">
             <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-100">
               <h2 className="text-2xl font-extrabold text-slate-800">{selectedPupil.name}</h2>
               <button onClick={closeDrawer} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
@@ -193,7 +339,7 @@ export default function CommandCenterTab() {
                 <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wider border-b border-slate-100 pb-2">Context Variables</h3>
                 
                 <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Pupil Interests (For AI Reasoning Questions)</label>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">3 Key Interests (For AI Reasoning Questions)</label>
                   <input 
                     type="text" 
                     value={selectedPupil.interests || ''}
@@ -247,12 +393,6 @@ export default function CommandCenterTab() {
                   )}
                 </div>
               </div>
-            </div>
-            
-            <div className="mt-8 pt-6 border-t border-slate-100">
-              <button onClick={closeDrawer} className="w-full py-3 bg-slate-900 text-white rounded-lg font-bold hover:bg-slate-800 transition-colors">
-                Save & Close Profile
-              </button>
             </div>
           </div>
         )}

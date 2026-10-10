@@ -364,13 +364,16 @@ export default function CommandCenterTab() {
 <nav className="fixed bottom-0 w-full bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
         <div className="max-w-6xl mx-auto w-full">
           <div 
-            className="flex overflow-x-auto px-2"
+            className="flex w-full overflow-x-auto"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             {/* Hides the scrollbar on Chrome, Safari, and Edge while keeping swipe functionality */}
             <style>{`
               nav div::-webkit-scrollbar { display: none; }
             `}</style>
+            
+            {/* Left Spacer: Protects left edge during scroll */}
+            <div className="shrink-0 w-2"></div>
             
             {[
               { id: 'master', label: 'Master', icon: '🎯' },
@@ -383,7 +386,7 @@ export default function CommandCenterTab() {
               <button 
                 key={tab.id} 
                 onClick={() => setActiveTab(tab.id)} 
-                className={`flex-1 min-w-[85px] shrink-0 py-4 flex flex-col items-center gap-1 border-t-2 transition-all ${
+                className={`flex-1 min-w-[85px] shrink-0 sm:shrink py-4 flex flex-col items-center gap-1 border-t-2 transition-all ${
                   activeTab === tab.id 
                     ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' 
                     : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
@@ -393,6 +396,9 @@ export default function CommandCenterTab() {
                 <span className="text-xs font-bold whitespace-nowrap">{tab.label}</span>
               </button>
             ))}
+
+            {/* Right Spacer: Prevents the final button from crashing into the screen edge on mobile */}
+            <div className="shrink-0 w-2 sm:hidden"></div>
           </div>
         </div>
       </nav>

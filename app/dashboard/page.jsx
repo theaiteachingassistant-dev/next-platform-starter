@@ -1,4 +1,4 @@
-import CommandCenterTab from '@/components/CommandCenterTab';
+import CommandCenterTab from '../../components/CommandCenterTab';
 
 export default function DashboardPage() {
   return (

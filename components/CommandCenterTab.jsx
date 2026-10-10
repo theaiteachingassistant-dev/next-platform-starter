@@ -26,14 +26,10 @@ const READING_AGES = [
   'Phonics Phase 5', 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'
 ];
 
-// --- High-Density Spreadsheet Header ---
 function SortableHeader({ id, skill_name }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
 
-  const style = {
-    transform: CSS.Translate.toString(transform),
-    transition,
-  };
+  const style = { transform: CSS.Translate.toString(transform), transition };
 
   return (
     <th
@@ -45,7 +41,6 @@ function SortableHeader({ id, skill_name }) {
     >
       <div className="flex flex-col items-center justify-end gap-1.5 h-full min-h-[60px]">
         <span className="text-slate-400 text-sm leading-none select-none">⋮⋮</span>
-        {/* whitespace-normal forces the text to wrap to a new line instead of stretching the box */}
         <span className="whitespace-normal break-words text-[11px] leading-tight px-1 pb-1">
           {skill_name}
         </span>
@@ -72,7 +67,6 @@ export default function CommandCenterTab() {
             if (clerkToken) headers.set('Authorization', `Bearer ${clerkToken}`);
             return fetch(url, { ...options, headers });
           } catch (err) {
-            console.error('Clerk Token Error:', err);
             throw err;
           }
         },
@@ -81,6 +75,7 @@ export default function CommandCenterTab() {
   }, [session]);
 
   const [activeTab, setActiveTab] = useState('master');
+  const [isMounted, setIsMounted] = useState(false);
   const [selectedPupil, setSelectedPupil] = useState(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -108,12 +103,18 @@ export default function CommandCenterTab() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  useEffect(() => { if (userId && supabase) fetchDashboardData(); }, [userId, supabase]);
+  useEffect(() => {
+    setIsMounted(true);
+    const savedTab = localStorage.getItem('ks2_active_tab');
+    if (savedTab) setActiveTab(savedTab);
+    if (userId && supabase) fetchDashboardData();
+  }, [userId, supabase]);
 
   useEffect(() => {
+    if (isMounted) localStorage.setItem('ks2_active_tab', activeTab);
     setNewSkillName('');
     setColumnError(null);
-  }, [activeTab]);
+  }, [activeTab, isMounted]);
 
   const fetchDashboardData = async () => {
     if (!supabase) return;
@@ -176,7 +177,6 @@ export default function CommandCenterTab() {
     if (!over || active.id === over.id || !supabase) return;
 
     setColumnError(null);
-
     const oldIndex = activeSkills.findIndex(s => s.id === active.id);
     const newIndex = activeSkills.findIndex(s => s.id === over.id);
     const newOrder = arrayMove(activeSkills, oldIndex, newIndex);
@@ -196,7 +196,6 @@ export default function CommandCenterTab() {
         if (error) throw error;
       }
     } catch (err) {
-      console.error("Drag Error:", err);
       setColumnError("Reordering failed: " + (err.message || "Database rejected save."));
       fetchDashboardData(); 
     }
@@ -228,34 +227,35 @@ export default function CommandCenterTab() {
   const openPupilDrawer = (pupil) => { setSelectedPupil(pupil); setIsDrawerOpen(true); };
   const closeDrawer = () => { setIsDrawerOpen(false); setTimeout(() => setSelectedPupil(null), 300); };
 
+  if (!isMounted) return null;
+
   return (
-    // Changed h-screen to h-full so it perfectly fills the fluid Layout container
-    <div className="flex flex-col h-full bg-slate-50 relative">
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex justify-between items-center shadow-sm z-10 shrink-0">
+    <div className="flex flex-col h-full bg-slate-50 relative min-h-0 w-full">
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between sm:items-center shadow-sm z-10 shrink-0 gap-3">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">Tactical Command Center</h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-800 tracking-tight">Tactical Command Center</h1>
+          <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
             {activeTab === 'master' ? 'Master Staging Area: Ready for Sweep' : `${activeTab.replace('-', ' ').toUpperCase()} Intervention Matrix`}
           </p>
         </div>
         {activeTab === 'master' && (
-          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm transition-all flex items-center gap-2">
+          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 sm:px-6 py-2.5 rounded-lg text-sm sm:text-base font-bold shadow-sm transition-all flex justify-center items-center gap-2">
             🚀 Execute Batch Sweep
           </button>
         )}
       </header>
 
-      <main className="flex-1 overflow-auto p-6 bg-slate-50">
+      <main className="flex-1 overflow-auto p-4 sm:p-6 bg-slate-50 flex flex-col min-h-0">
         {isLoading ? (
-          <div className="flex justify-center items-center h-full text-slate-400 font-medium">Loading Database...</div>
+          <div className="flex justify-center items-center flex-1 text-slate-400 font-medium">Loading Database...</div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 min-h-full flex flex-col">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 flex-1 flex flex-col min-h-0">
             
             {/* MASTER TAB */}
             {activeTab === 'master' && (
-              <div>
+              <div className="flex-1 overflow-auto">
                 <div className="flex justify-between items-center mb-6">
-                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Class Roster (Master View)</p>
+                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Class Roster</p>
                   <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors">
                     + Add Pupil
                   </button>
@@ -282,25 +282,25 @@ export default function CommandCenterTab() {
 
             {/* SUBJECT MATRIX TAB */}
             {activeTab !== 'master' && (
-              <div className="h-full flex flex-col flex-1">
-                <div className="flex justify-between items-start mb-6">
+              <div className="h-full flex flex-col flex-1 min-h-0">
+                <div className="flex flex-col sm:flex-row justify-between items-start mb-6 gap-4 shrink-0">
                   <h2 className="text-lg font-bold text-slate-800 capitalize mt-2">{activeTab.replace('-', ' ')}</h2>
-                  <div className="flex flex-col items-end">
-                    <form onSubmit={handleAddSkill} className="flex gap-2">
-                      <input type="text" required value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} placeholder="New Column (e.g. Fractions)" className="border border-slate-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-64" />
-                      <button type="submit" disabled={isAddingSkill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:bg-indigo-400">
+                  <div className="flex flex-col items-end w-full sm:w-auto">
+                    <form onSubmit={handleAddSkill} className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                      <input type="text" required value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} placeholder="New Column (e.g. Fractions)" className="border border-slate-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-full sm:w-64" />
+                      <button type="submit" disabled={isAddingSkill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:bg-indigo-400 w-full sm:w-auto whitespace-nowrap">
                         {isAddingSkill ? '...' : '+ Add Column'}
                       </button>
                     </form>
                     {columnError && (
-                      <div className="text-red-600 text-xs font-bold mt-2 bg-red-50 px-3 py-1.5 rounded border border-red-100">
+                      <div className="text-red-600 text-xs font-bold mt-2 bg-red-50 px-3 py-1.5 rounded border border-red-100 w-full text-center sm:text-right">
                         🚨 {columnError}
                       </div>
                     )}
                   </div>
                 </div>
                 
-                <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm relative">
+                <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm relative min-h-0">
                   {pupils.length === 0 ? (
                     <div className="p-12 text-center text-slate-400 text-sm">Add pupils in the Master Tab to populate this grid.</div>
                   ) : activeSkills.length === 0 ? (
@@ -310,7 +310,7 @@ export default function CommandCenterTab() {
                       <table className="w-full text-left border-collapse">
                         <thead className="bg-slate-50 sticky top-0 z-30 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                           <tr>
-                            <th className="p-3 border-b border-slate-200 border-r min-w-[140px] font-extrabold text-slate-700 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] sticky left-0 z-40 align-bottom pb-2">
+                            <th className="p-3 border-b border-slate-200 border-r w-auto whitespace-nowrap pr-6 font-extrabold text-slate-700 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] sticky left-0 z-40 align-bottom pb-2">
                               Class Roster
                             </th>
                             <SortableContext items={activeSkills.map(s => s.id)} strategy={horizontalListSortingStrategy}>
@@ -323,7 +323,7 @@ export default function CommandCenterTab() {
                         <tbody>
                           {pupils.map(pupil => (
                             <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group">
-                              <td className="p-3 border-b border-slate-200 border-r font-semibold text-slate-700 bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate max-w-[140px]">
+                              <td className="p-3 border-b border-slate-200 border-r font-semibold text-slate-700 bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
                                 {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
                               </td>
                               {activeSkills.map(skill => {
@@ -338,7 +338,6 @@ export default function CommandCenterTab() {
                                 return (
                                   <td key={`${pupil.id}-${skill.id}`} className="p-1 border-b border-slate-200 border-r text-center align-middle">
                                     <div className="flex items-center justify-center">
-                                      {/* High Density Traffic Light: Reduced to 32x32 square */}
                                       <button 
                                         onClick={() => handleCellCycle(pupil.id, skill.id)} 
                                         className={`w-8 h-8 rounded-sm transition-all border shadow-sm ${bgClass}`}
@@ -360,15 +359,9 @@ export default function CommandCenterTab() {
         )}
       </main>
 
-      {/* Fluid CSS Grid Navigation - Attached natively to the bottom of the flex container */}
       <nav className="shrink-0 w-full bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-        <div 
-          className="grid grid-flow-col auto-cols-[minmax(95px,1fr)] w-full overflow-x-auto"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
-          <style>{`
-            nav div::-webkit-scrollbar { display: none; }
-          `}</style>
+        <div className="grid grid-flow-col auto-cols-[minmax(95px,1fr)] w-full overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          <style>{`nav div::-webkit-scrollbar { display: none; }`}</style>
           
           {[
             { id: 'master', label: 'Master', icon: '🎯' },
@@ -382,9 +375,7 @@ export default function CommandCenterTab() {
               key={tab.id} 
               onClick={() => setActiveTab(tab.id)} 
               className={`py-3.5 flex flex-col items-center gap-1 border-t-2 transition-all ${
-                activeTab === tab.id 
-                  ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' 
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                activeTab === tab.id ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
               }`}
             >
               <span className="text-xl">{tab.icon}</span>

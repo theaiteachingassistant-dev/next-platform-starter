@@ -28,7 +28,7 @@ const READING_AGES = [
 
 const SUBJECTS = ['maths', 'writing', 'reading', 'spelling', 'times-tables'];
 
-function SortableHeader({ id, skill_name }) {
+function SortableHeader({ id, skill_name, onSettingsClick }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Translate.toString(transform), transition };
 
@@ -38,9 +38,17 @@ function SortableHeader({ id, skill_name }) {
       style={style}
       {...attributes}
       {...listeners}
-      className="p-2 border-b border-slate-200 border-r w-24 min-w-[96px] text-center font-bold text-slate-700 bg-slate-50 leading-tight cursor-grab active:cursor-grabbing hover:bg-slate-100 relative z-20 align-bottom"
+      className="p-2 border-b border-slate-200 border-r w-24 min-w-[96px] text-center font-bold text-slate-700 bg-slate-50 leading-tight cursor-grab active:cursor-grabbing hover:bg-slate-100 relative z-20 align-bottom group"
     >
-      <div className="flex flex-col items-center justify-end gap-1.5 h-full min-h-[60px]">
+      <div className="flex flex-col items-center justify-end gap-1.5 h-full min-h-[60px] relative w-full">
+        <button 
+          onPointerDown={(e) => e.stopPropagation()} 
+          onClick={(e) => { e.stopPropagation(); onSettingsClick(id); }}
+          className="absolute top-0 right-0 p-1 text-slate-300 hover:text-indigo-600 transition-colors opacity-0 group-hover:opacity-100"
+          title="Column Settings"
+        >
+          ⚙️
+        </button>
         <span className="text-slate-400 text-sm leading-none select-none">⋮⋮</span>
         <span className="whitespace-normal break-words text-[11px] leading-tight px-1 pb-1">
           {skill_name}
@@ -77,7 +85,10 @@ export default function CommandCenterTab() {
 
   const [activeTab, setActiveTab] = useState('master');
   const [isMounted, setIsMounted] = useState(false);
+  
   const [selectedPupil, setSelectedPupil] = useState(null);
+  const [isConfirmingDeletePupil, setIsConfirmingDeletePupil] = useState(false);
+  const [skillModal, setSkillModal] = useState({ isOpen: false, skill: null, isConfirmingDelete: false });
   
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -96,7 +107,6 @@ export default function CommandCenterTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [newSkillName, setNewSkillName] = useState('');
 
-  // Master Tab Staging State: Holds manual dropdown overrides prior to generation
   const [sweepOverrides, setSweepOverrides] = useState({});
 
   const initialPupilState = {
@@ -111,6 +121,10 @@ export default function CommandCenterTab() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
+  const sortedPupils = useMemo(() => {
+    return [...pupils].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [pupils]);
+
   useEffect(() => {
     setIsMounted(true);
     const savedTab = localStorage.getItem('ks2_active_tab');
@@ -124,13 +138,14 @@ export default function CommandCenterTab() {
     setColumnError(null);
     setCellError(null);
     setMemoryModal({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
+    setSkillModal({ isOpen: false, skill: null, isConfirmingDelete: false });
   }, [activeTab, isMounted]);
 
   const fetchDashboardData = async () => {
     if (!supabase) return;
     setIsLoading(true);
     const [pupilsRes, skillsRes, progressRes] = await Promise.all([
-      supabase.from('pupils').select('*').eq('user_id', userId).order('name', { ascending: true }),
+      supabase.from('pupils').select('*').eq('user_id', userId),
       supabase.from('curriculum_skills').select('*').eq('user_id', userId).order('order_index', { ascending: true }),
       supabase.from('pupil_progress').select('*').eq('user_id', userId)
     ]);
@@ -140,9 +155,6 @@ export default function CommandCenterTab() {
     setIsLoading(false);
   };
 
-  // -------------------------------------------------------------
-  // THE RED SWEEP ALGORITHM (Step 5 Logic)
-  // -------------------------------------------------------------
   const calculateTarget = (pupilId, subject) => {
     const subjectSkills = skills.filter(s => s.subject === subject).sort((a, b) => a.order_index - b.order_index);
     let firstOrange = null;
@@ -166,15 +178,9 @@ export default function CommandCenterTab() {
   };
 
   const handleTargetOverride = (pupilId, subject, skillId) => {
-    setSweepOverrides(prev => ({
-      ...prev,
-      [pupilId]: { ...(prev[pupilId] || {}), [subject]: skillId }
-    }));
+    setSweepOverrides(prev => ({ ...prev, [pupilId]: { ...(prev[pupilId] || {}), [subject]: skillId } }));
   };
 
-  // -------------------------------------------------------------
-  // TEMPORAL ENGINE: 7:00 AM Locking Logic
-  // -------------------------------------------------------------
   const getMorningReviewDate = (daysToAdd) => {
     const d = new Date();
     d.setDate(d.getDate() + parseInt(daysToAdd));
@@ -194,18 +200,11 @@ export default function CommandCenterTab() {
       const nextStatus = cycle[currentStatus];
       
       let nextReview = null;
-      if (nextStatus === 'green') {
-        nextReview = getMorningReviewDate(7); // Default 1-Week Anchor targeting 7:00 AM
-      }
+      if (nextStatus === 'green') nextReview = getMorningReviewDate(7); 
 
-      const updatedCell = { 
-        ...existing, 
-        status: nextStatus, 
-        last_assessed_at: new Date().toISOString(),
-        next_review_date: nextReview
-      };
-
+      const updatedCell = { ...existing, status: nextStatus, last_assessed_at: new Date().toISOString(), next_review_date: nextReview };
       let newProgress = [...progress];
+      
       if (existing) {
         newProgress[newProgress.findIndex(p => p.id === existing.id)] = updatedCell;
       } else {
@@ -222,8 +221,7 @@ export default function CommandCenterTab() {
         if (data) setProgress(prev => prev.map(p => (p.pupil_id === pupilId && p.skill_id === skillId) ? data[0] : p));
       }
     } catch (err) {
-      setCellError(`Failed to update cell: ${err.message}`);
-      fetchDashboardData(); 
+      setCellError(`Failed to update cell: ${err.message}`); fetchDashboardData(); 
     }
   };
 
@@ -237,19 +235,16 @@ export default function CommandCenterTab() {
   const saveMemoryOverride = async (e) => {
     e.preventDefault();
     if (!supabase) return;
-    setCellError(null);
-    setIsSaving(true);
+    setCellError(null); setIsSaving(true);
     
     try {
-      const nextReview = getMorningReviewDate(memoryModal.days); // Custom decay targeting 7:00 AM
+      const nextReview = getMorningReviewDate(memoryModal.days); 
       const assessedAt = new Date().toISOString();
       const existing = progress.find(p => p.pupil_id === memoryModal.pupilId && p.skill_id === memoryModal.skillId);
       
-      const updatedCell = { 
-        ...existing, status: 'green', memory_notes: memoryModal.notes, next_review_date: nextReview, last_assessed_at: assessedAt
-      };
-
+      const updatedCell = { ...existing, status: 'green', memory_notes: memoryModal.notes, next_review_date: nextReview, last_assessed_at: assessedAt };
       let newProgress = [...progress];
+
       if (existing) {
         newProgress[newProgress.findIndex(p => p.id === existing.id)] = updatedCell;
         setProgress(newProgress);
@@ -262,14 +257,37 @@ export default function CommandCenterTab() {
         if (error) throw error;
         if (data) setProgress(prev => prev.map(p => (p.pupil_id === memoryModal.pupilId && p.skill_id === memoryModal.skillId) ? data[0] : p));
       }
-
       setMemoryModal({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
     } catch(err) {
-      setCellError(`Override failed: ${err.message}`);
-      fetchDashboardData();
-    } finally {
-      setIsSaving(false);
-    }
+      setCellError(`Override failed: ${err.message}`); fetchDashboardData();
+    } finally { setIsSaving(false); }
+  };
+
+  const handleDeletePupil = async () => {
+    if (!supabase || !selectedPupil) return;
+    try {
+      const { error } = await supabase.from('pupils').delete().eq('id', selectedPupil.id);
+      if (error) throw error;
+      setPupils(pupils.filter(p => p.id !== selectedPupil.id));
+      setProgress(progress.filter(p => p.pupil_id !== selectedPupil.id));
+      closeDrawer();
+    } catch(err) { setCellError(`Delete failed: ${err.message}`); }
+  };
+
+  const handleDeleteSkill = async () => {
+    if (!supabase || !skillModal.skill) return;
+    try {
+      const { error } = await supabase.from('curriculum_skills').delete().eq('id', skillModal.skill.id);
+      if (error) throw error;
+      setSkills(skills.filter(s => s.id !== skillModal.skill.id));
+      setProgress(progress.filter(p => p.skill_id !== skillModal.skill.id));
+      setSkillModal({ isOpen: false, skill: null, isConfirmingDelete: false });
+    } catch(err) { setColumnError(`Delete failed: ${err.message}`); }
+  };
+
+  const openSkillSettings = (skillId) => {
+    const targetSkill = skills.find(s => s.id === skillId);
+    if (targetSkill) setSkillModal({ isOpen: true, skill: targetSkill, isConfirmingDelete: false });
   };
 
   const handleAddPupil = async (e) => {
@@ -279,7 +297,7 @@ export default function CommandCenterTab() {
     try {
       const { data, error } = await supabase.from('pupils').insert([{ ...newPupil, user_id: userId }]).select();
       if (error) throw error;
-      if (data) { setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name))); closeAddModal(); }
+      if (data) { setPupils([...pupils, data[0]]); closeAddModal(); }
     } catch (error) { setSaveError(error.message); } finally { setIsSaving(false); }
   };
 
@@ -314,9 +332,7 @@ export default function CommandCenterTab() {
         const { error } = await supabase.from('curriculum_skills').update({ order_index: i }).eq('id', newOrder[i].id);
         if (error) throw error;
       }
-    } catch (err) {
-      setColumnError(err.message); fetchDashboardData(); 
-    }
+    } catch (err) { setColumnError(err.message); fetchDashboardData(); }
   };
 
   const handleProfileUpdate = async (field, value) => {
@@ -328,7 +344,7 @@ export default function CommandCenterTab() {
   };
 
   const openPupilDrawer = (pupil) => { setSelectedPupil(pupil); setIsDrawerOpen(true); };
-  const closeDrawer = () => { setIsDrawerOpen(false); setTimeout(() => setSelectedPupil(null), 300); };
+  const closeDrawer = () => { setIsDrawerOpen(false); setTimeout(() => { setSelectedPupil(null); setIsConfirmingDeletePupil(false); }, 300); };
   const closeAddModal = () => { setIsAddModalOpen(false); setSaveError(null); setNewPupil(initialPupilState); };
 
   const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
@@ -363,7 +379,7 @@ export default function CommandCenterTab() {
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 flex-1 flex flex-col min-h-0">
             
-            {/* MASTER TAB: STAGING AREA */}
+            {/* MASTER TAB */}
             {activeTab === 'master' && (
               <div className="flex-1 overflow-auto">
                 <div className="flex justify-between items-center mb-6">
@@ -373,13 +389,13 @@ export default function CommandCenterTab() {
                   </button>
                 </div>
                 
-                {pupils.length === 0 ? (
+                {sortedPupils.length === 0 ? (
                   <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl">
                     <p className="text-slate-500 font-medium">No pupils in roster.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {pupils.map(pupil => (
+                    {sortedPupils.map(pupil => (
                       <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col hover:border-indigo-300 transition-colors">
                         <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-3">
                           <button onClick={() => openPupilDrawer(pupil)} className="font-extrabold text-slate-800 hover:text-indigo-600 transition-colors text-left">
@@ -440,7 +456,7 @@ export default function CommandCenterTab() {
                 </div>
                 
                 <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm relative min-h-0">
-                  {pupils.length === 0 ? (
+                  {sortedPupils.length === 0 ? (
                     <div className="p-12 text-center text-slate-400 text-sm">Add pupils in the Master Tab to populate this grid.</div>
                   ) : activeSkills.length === 0 ? (
                     <div className="p-12 text-center text-slate-400 text-sm">Use the "+ Add Column" button above to build your {activeTab} curriculum.</div>
@@ -454,16 +470,18 @@ export default function CommandCenterTab() {
                             </th>
                             <SortableContext items={activeSkills.map(s => s.id)} strategy={horizontalListSortingStrategy}>
                               {activeSkills.map(skill => (
-                                <SortableHeader key={skill.id} id={skill.id} skill_name={skill.skill_name} />
+                                <SortableHeader key={skill.id} id={skill.id} skill_name={skill.skill_name} onSettingsClick={openSkillSettings} />
                               ))}
                             </SortableContext>
                           </tr>
                         </thead>
                         <tbody>
-                          {pupils.map(pupil => (
+                          {sortedPupils.map(pupil => (
                             <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group">
-                              <td className="p-3 border-b border-slate-200 border-r font-semibold text-slate-700 bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
-                                {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
+                              <td className="p-3 border-b border-slate-200 border-r bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
+                                <button onClick={() => openPupilDrawer(pupil)} className="font-semibold text-slate-700 hover:text-indigo-600 transition-colors text-left w-full">
+                                  {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
+                                </button>
                               </td>
                               {activeSkills.map(skill => {
                                 const cellData = progress.find(p => p.pupil_id === pupil.id && p.skill_id === skill.id);
@@ -532,7 +550,9 @@ export default function CommandCenterTab() {
         </div>
       </nav>
 
-      {/* MEMORY OVERRIDE MODAL */}
+      {/* MODALS */}
+      
+      {/* 1. Memory Override Modal */}
       {memoryModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -568,7 +588,44 @@ export default function CommandCenterTab() {
         </div>
       )}
 
-      {/* ADD PUPIL MODAL */}
+      {/* 2. Column Deletion Modal */}
+      {skillModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-extrabold text-slate-800 flex items-center gap-2">⚙️ Column Settings</h3>
+              <button onClick={() => setSkillModal({ isOpen: false, skill: null, isConfirmingDelete: false })} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Column Name</label>
+                <div className="w-full p-2.5 bg-slate-100 border border-slate-200 rounded-lg text-sm font-bold text-slate-700">
+                  {skillModal.skill?.skill_name}
+                </div>
+              </div>
+              
+              <div className="pt-4 border-t border-red-100">
+                {!skillModal.isConfirmingDelete ? (
+                  <button onClick={() => setSkillModal({ ...skillModal, isConfirmingDelete: true })} className="w-full py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors">
+                    Delete Entire Column
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button onClick={handleDeleteSkill} className="flex-1 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors">
+                      Confirm Erase
+                    </button>
+                    <button onClick={() => setSkillModal({ ...skillModal, isConfirmingDelete: false })} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Add Pupil Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
@@ -637,16 +694,33 @@ export default function CommandCenterTab() {
         </div>
       )}
 
-      {/* PUPIL PROFILE DRAWER */}
+      {/* 4. PUPIL PROFILE DRAWER (With Name Editing & Deletion) */}
       <div className={`fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-30 transition-opacity duration-300 ${isDrawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={closeDrawer}></div>
       <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl z-40 transform transition-transform duration-300 ease-in-out overflow-y-auto ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         {selectedPupil && (
-          <div className="p-6 pb-24">
+          <div className="p-6 pb-24 flex flex-col min-h-full">
             <div className="flex justify-between items-center mb-8 pb-4 border-b border-slate-100">
-              <h2 className="text-2xl font-extrabold text-slate-800">{selectedPupil.name} {selectedPupil.surname_initial ? `${selectedPupil.surname_initial}.` : ''}</h2>
-              <button onClick={closeDrawer} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
+              <div className="flex gap-2 items-center flex-1 mr-4">
+                <input 
+                  type="text" 
+                  value={selectedPupil.name || ''} 
+                  onChange={(e) => handleProfileUpdate('name', e.target.value)}
+                  className="text-2xl font-extrabold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-0 px-1 w-full max-w-[150px] transition-colors"
+                  placeholder="First Name"
+                />
+                <input 
+                  type="text" 
+                  maxLength="1"
+                  value={selectedPupil.surname_initial || ''} 
+                  onChange={(e) => handleProfileUpdate('surname_initial', e.target.value.toUpperCase())}
+                  className="text-2xl font-extrabold text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-0 px-1 w-12 text-center transition-colors"
+                  placeholder="Initial"
+                />
+              </div>
+              <button onClick={closeDrawer} className="text-slate-400 hover:text-slate-600 font-bold text-xl shrink-0">&times;</button>
             </div>
-            <div className="space-y-6">
+            
+            <div className="space-y-6 flex-1">
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 space-y-4">
                 <h3 className="font-bold text-indigo-900 text-sm uppercase tracking-wider flex items-center gap-2">📖 Reading Engine Calibration</h3>
                 <div>
@@ -693,6 +767,25 @@ export default function CommandCenterTab() {
                 </div>
               </div>
             </div>
+
+            {/* Safe Deletion Engine for Pupil */}
+            <div className="mt-8 pt-6 border-t border-red-100 shrink-0">
+               {!isConfirmingDeletePupil ? (
+                 <button onClick={() => setIsConfirmingDeletePupil(true)} className="w-full py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors">
+                   Delete Pupil
+                 </button>
+               ) : (
+                 <div className="flex gap-2">
+                   <button onClick={handleDeletePupil} className="flex-1 py-2.5 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors shadow-sm">
+                     Confirm Delete
+                   </button>
+                   <button onClick={() => setIsConfirmingDeletePupil(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-lg text-sm font-bold hover:bg-slate-200 transition-colors">
+                     Cancel
+                   </button>
+                 </div>
+               )}
+            </div>
+
           </div>
         )}
       </div>

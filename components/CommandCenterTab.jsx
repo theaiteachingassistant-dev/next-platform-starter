@@ -26,6 +26,8 @@ const READING_AGES = [
   'Phonics Phase 5', 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'
 ];
 
+const SUBJECTS = ['maths', 'writing', 'reading', 'spelling', 'times-tables'];
+
 function SortableHeader({ id, skill_name }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
   const style = { transform: CSS.Translate.toString(transform), transition };
@@ -77,11 +79,9 @@ export default function CommandCenterTab() {
   const [isMounted, setIsMounted] = useState(false);
   const [selectedPupil, setSelectedPupil] = useState(null);
   
-  // UI Modal States
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   
-  // Protocol 2 & 3: Memory Engine States
   const [memoryModal, setMemoryModal] = useState({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
   const [cellError, setCellError] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -95,6 +95,9 @@ export default function CommandCenterTab() {
   const [progress, setProgress] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newSkillName, setNewSkillName] = useState('');
+
+  // Master Tab Staging State: Holds manual dropdown overrides prior to generation
+  const [sweepOverrides, setSweepOverrides] = useState({});
 
   const initialPupilState = {
     name: '', surname_initial: '', gender: 'Neutral', year_group: '3',
@@ -115,7 +118,6 @@ export default function CommandCenterTab() {
     if (userId && supabase) fetchDashboardData();
   }, [userId, supabase]);
 
-  // Protocol 3: Map State-Resets on UI Transition
   useEffect(() => {
     if (isMounted) localStorage.setItem('ks2_active_tab', activeTab);
     setNewSkillName('');
@@ -138,78 +140,48 @@ export default function CommandCenterTab() {
     setIsLoading(false);
   };
 
-  const closeAddModal = () => { setIsAddModalOpen(false); setSaveError(null); setNewPupil(initialPupilState); };
+  // -------------------------------------------------------------
+  // THE RED SWEEP ALGORITHM (Step 5 Logic)
+  // -------------------------------------------------------------
+  const calculateTarget = (pupilId, subject) => {
+    const subjectSkills = skills.filter(s => s.subject === subject).sort((a, b) => a.order_index - b.order_index);
+    let firstOrange = null;
+    let firstDecayingGreen = null;
+    const now = new Date();
 
-  const handleAddPupil = async (e) => {
-    e.preventDefault();
-    if (!newPupil.name.trim() || !userId || !supabase) return;
-    setIsSaving(true); setSaveError(null);
-    try {
-      const { data, error } = await supabase.from('pupils').insert([{ ...newPupil, user_id: userId }]).select();
-      if (error) throw error;
-      if (data) { setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name))); closeAddModal(); }
-    } catch (error) {
-      setSaveError(error.message || "Failed to connect to Supabase.");
-    } finally { setIsSaving(false); }
-  };
-
-  const handleProfileUpdate = async (field, value) => {
-    if (!supabase) return;
-    const updatedPupil = { ...selectedPupil, [field]: value };
-    setSelectedPupil(updatedPupil);
-    setPupils(pupils.map(p => p.id === updatedPupil.id ? updatedPupil : p));
-    await supabase.from('pupils').update({ [field]: value }).eq('id', updatedPupil.id);
-  };
-
-  const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
-
-  const handleAddSkill = async (e) => {
-    e.preventDefault();
-    if (!newSkillName.trim() || !userId || !supabase) return;
-    setIsAddingSkill(true); setColumnError(null);
-    const nextIndex = activeSkills.length;
-    try {
-      const { data, error } = await supabase
-        .from('curriculum_skills')
-        .insert([{ user_id: userId, subject: activeTab, skill_name: newSkillName.trim(), order_index: nextIndex }])
-        .select();
-      if (error) throw error;
-      if (data) { setSkills([...skills, data[0]]); setNewSkillName(''); }
-    } catch (err) {
-      setColumnError(err.message || "Failed to add column.");
-    } finally { setIsAddingSkill(false); }
-  };
-
-  const handleDragEnd = async (event) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id || !supabase) return;
-
-    setColumnError(null);
-    const oldIndex = activeSkills.findIndex(s => s.id === active.id);
-    const newIndex = activeSkills.findIndex(s => s.id === over.id);
-    const newOrder = arrayMove(activeSkills, oldIndex, newIndex);
-
-    const updatedSkills = skills.map(skill => {
-      const reorderedSkill = newOrder.find(ns => ns.id === skill.id);
-      return reorderedSkill ? { ...skill, order_index: newOrder.indexOf(reorderedSkill) } : skill;
-    });
-    setSkills(updatedSkills);
-
-    try {
-      for (let i = 0; i < newOrder.length; i++) {
-        const { error } = await supabase.from('curriculum_skills').update({ order_index: i }).eq('id', newOrder[i].id);
-        if (error) throw error;
+    for (const skill of subjectSkills) {
+      const pData = progress.find(pr => pr.pupil_id === pupilId && pr.skill_id === skill.id);
+      if (!pData || pData.status === 'blank') continue; 
+      
+      if (pData.status === 'red') return skill.id; 
+      if (pData.status === 'orange' && !firstOrange) firstOrange = skill.id;
+      
+      if (pData.status === 'green' && pData.next_review_date) {
+        if (now >= new Date(pData.next_review_date) && !firstDecayingGreen) {
+          firstDecayingGreen = skill.id;
+        }
       }
-    } catch (err) {
-      setColumnError("Reordering failed: " + (err.message || "Database rejected save."));
-      fetchDashboardData(); 
     }
+    return firstOrange || firstDecayingGreen || 'all-clear';
+  };
+
+  const handleTargetOverride = (pupilId, subject, skillId) => {
+    setSweepOverrides(prev => ({
+      ...prev,
+      [pupilId]: { ...(prev[pupilId] || {}), [subject]: skillId }
+    }));
   };
 
   // -------------------------------------------------------------
-  // THE MEMORY ENGINE: Click, Right-Click, and Override Handling
+  // TEMPORAL ENGINE: 7:00 AM Locking Logic
   // -------------------------------------------------------------
-  
+  const getMorningReviewDate = (daysToAdd) => {
+    const d = new Date();
+    d.setDate(d.getDate() + parseInt(daysToAdd));
+    d.setHours(7, 0, 0, 0); 
+    return d.toISOString();
+  };
+
   const handleCellCycle = async (pupilId, skillId, event) => {
     if (event) event.preventDefault();
     if (!supabase) return;
@@ -221,12 +193,9 @@ export default function CommandCenterTab() {
       const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
       const nextStatus = cycle[currentStatus];
       
-      // Automated Default Timer: +7 days if turned green. Wipe timer if turned anything else.
       let nextReview = null;
       if (nextStatus === 'green') {
-        const d = new Date();
-        d.setDate(d.getDate() + 7);
-        nextReview = d.toISOString();
+        nextReview = getMorningReviewDate(7); // Default 1-Week Anchor targeting 7:00 AM
       }
 
       const updatedCell = { 
@@ -236,7 +205,6 @@ export default function CommandCenterTab() {
         next_review_date: nextReview
       };
 
-      // Optimistic Update
       let newProgress = [...progress];
       if (existing) {
         newProgress[newProgress.findIndex(p => p.id === existing.id)] = updatedCell;
@@ -245,7 +213,6 @@ export default function CommandCenterTab() {
       }
       setProgress(newProgress);
 
-      // Database Sync (Protocol 2 Defense)
       if (existing) {
         const { error } = await supabase.from('pupil_progress').update({ status: nextStatus, last_assessed_at: updatedCell.last_assessed_at, next_review_date: nextReview }).eq('id', existing.id);
         if (error) throw error;
@@ -261,17 +228,10 @@ export default function CommandCenterTab() {
   };
 
   const handleRightClick = (e, pupilId, skillId) => {
-    e.preventDefault(); // Suppresses the browser menu (Works on mobile Long-Press)
+    e.preventDefault();
     setCellError(null);
     const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
-    
-    setMemoryModal({
-      isOpen: true,
-      pupilId,
-      skillId,
-      notes: existing?.memory_notes || '',
-      days: '7'
-    });
+    setMemoryModal({ isOpen: true, pupilId, skillId, notes: existing?.memory_notes || '', days: '7' });
   };
 
   const saveMemoryOverride = async (e) => {
@@ -281,23 +241,14 @@ export default function CommandCenterTab() {
     setIsSaving(true);
     
     try {
-      const d = new Date();
-      d.setDate(d.getDate() + parseInt(memoryModal.days));
-      const nextReview = d.toISOString();
+      const nextReview = getMorningReviewDate(memoryModal.days); // Custom decay targeting 7:00 AM
       const assessedAt = new Date().toISOString();
-
       const existing = progress.find(p => p.pupil_id === memoryModal.pupilId && p.skill_id === memoryModal.skillId);
       
-      // Override forces the cell to Green (Mastery) so the timer makes sense
       const updatedCell = { 
-        ...existing, 
-        status: 'green', 
-        memory_notes: memoryModal.notes, 
-        next_review_date: nextReview,
-        last_assessed_at: assessedAt
+        ...existing, status: 'green', memory_notes: memoryModal.notes, next_review_date: nextReview, last_assessed_at: assessedAt
       };
 
-      // Optimistic
       let newProgress = [...progress];
       if (existing) {
         newProgress[newProgress.findIndex(p => p.id === existing.id)] = updatedCell;
@@ -321,8 +272,66 @@ export default function CommandCenterTab() {
     }
   };
 
+  const handleAddPupil = async (e) => {
+    e.preventDefault();
+    if (!newPupil.name.trim() || !userId || !supabase) return;
+    setIsSaving(true); setSaveError(null);
+    try {
+      const { data, error } = await supabase.from('pupils').insert([{ ...newPupil, user_id: userId }]).select();
+      if (error) throw error;
+      if (data) { setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name))); closeAddModal(); }
+    } catch (error) { setSaveError(error.message); } finally { setIsSaving(false); }
+  };
+
+  const handleAddSkill = async (e) => {
+    e.preventDefault();
+    if (!newSkillName.trim() || !userId || !supabase) return;
+    setIsAddingSkill(true); setColumnError(null);
+    try {
+      const { data, error } = await supabase.from('curriculum_skills').insert([{ user_id: userId, subject: activeTab, skill_name: newSkillName.trim(), order_index: activeSkills.length }]).select();
+      if (error) throw error;
+      if (data) { setSkills([...skills, data[0]]); setNewSkillName(''); }
+    } catch (err) { setColumnError(err.message); } finally { setIsAddingSkill(false); }
+  };
+
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !supabase) return;
+    setColumnError(null);
+    
+    const oldIndex = activeSkills.findIndex(s => s.id === active.id);
+    const newIndex = activeSkills.findIndex(s => s.id === over.id);
+    const newOrder = arrayMove(activeSkills, oldIndex, newIndex);
+    
+    const updatedSkills = skills.map(skill => {
+      const reorderedSkill = newOrder.find(ns => ns.id === skill.id);
+      return reorderedSkill ? { ...skill, order_index: newOrder.indexOf(reorderedSkill) } : skill;
+    });
+    setSkills(updatedSkills);
+    
+    try {
+      for (let i = 0; i < newOrder.length; i++) {
+        const { error } = await supabase.from('curriculum_skills').update({ order_index: i }).eq('id', newOrder[i].id);
+        if (error) throw error;
+      }
+    } catch (err) {
+      setColumnError(err.message); fetchDashboardData(); 
+    }
+  };
+
+  const handleProfileUpdate = async (field, value) => {
+    if (!supabase) return;
+    const updatedPupil = { ...selectedPupil, [field]: value };
+    setSelectedPupil(updatedPupil);
+    setPupils(pupils.map(p => p.id === updatedPupil.id ? updatedPupil : p));
+    await supabase.from('pupils').update({ [field]: value }).eq('id', updatedPupil.id);
+  };
+
   const openPupilDrawer = (pupil) => { setSelectedPupil(pupil); setIsDrawerOpen(true); };
   const closeDrawer = () => { setIsDrawerOpen(false); setTimeout(() => setSelectedPupil(null), 300); };
+  const closeAddModal = () => { setIsAddModalOpen(false); setSaveError(null); setNewPupil(initialPupilState); };
+
+  const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
 
   if (!isMounted) return null;
 
@@ -342,7 +351,6 @@ export default function CommandCenterTab() {
         )}
       </header>
 
-      {/* Protocol 2: Matrix Error Banner */}
       {cellError && (
         <div className="bg-red-600 text-white text-xs font-bold px-4 py-2 text-center shrink-0 shadow-inner">
           ⚠️ {cellError}
@@ -355,11 +363,11 @@ export default function CommandCenterTab() {
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sm:p-6 flex-1 flex flex-col min-h-0">
             
-            {/* MASTER TAB */}
+            {/* MASTER TAB: STAGING AREA */}
             {activeTab === 'master' && (
               <div className="flex-1 overflow-auto">
                 <div className="flex justify-between items-center mb-6">
-                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Class Roster</p>
+                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Intervention Targets</p>
                   <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors">
                     + Add Pupil
                   </button>
@@ -370,14 +378,41 @@ export default function CommandCenterTab() {
                     <p className="text-slate-500 font-medium">No pupils in roster.</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                     {pupils.map(pupil => (
-                      <button key={pupil.id} onClick={() => openPupilDrawer(pupil)} className="w-full text-left px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors font-semibold text-slate-700 flex justify-between items-center">
-                        <span>{pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}</span>
-                        <span className="text-xs px-2 py-1 bg-white rounded border border-slate-200 text-slate-500">
-                          {pupil.reading_age || 'Age Pending'} • {pupil.reading_tier || 'Tier Pending'}
-                        </span>
-                      </button>
+                      <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col hover:border-indigo-300 transition-colors">
+                        <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-3">
+                          <button onClick={() => openPupilDrawer(pupil)} className="font-extrabold text-slate-800 hover:text-indigo-600 transition-colors text-left">
+                            {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
+                          </button>
+                          <span className="text-[10px] uppercase tracking-wider px-2 py-1 bg-slate-100 text-slate-600 rounded font-bold border border-slate-200">
+                            {pupil.reading_age}
+                          </span>
+                        </div>
+                        <div className="space-y-2.5 flex-1">
+                          {SUBJECTS.map(sub => {
+                            const currentTargetId = sweepOverrides[pupil.id]?.[sub] || calculateTarget(pupil.id, sub);
+                            const subSkills = skills.filter(s => s.subject === sub).sort((a,b) => a.order_index - b.order_index);
+                            return (
+                              <div key={sub} className="flex justify-between items-center gap-3">
+                                <span className="text-xs font-black text-slate-400 uppercase tracking-wider w-16 shrink-0">
+                                  {sub.replace('-', ' ')}
+                                </span>
+                                <select 
+                                  className="flex-1 text-xs p-1.5 bg-slate-50 border border-slate-200 rounded text-slate-700 font-semibold focus:ring-1 focus:ring-indigo-500 overflow-hidden text-ellipsis"
+                                  value={currentTargetId}
+                                  onChange={(e) => handleTargetOverride(pupil.id, sub, e.target.value)}
+                                >
+                                  <option value="all-clear">✅ No Intervention</option>
+                                  {subSkills.map(s => (
+                                    <option key={s.id} value={s.id}>{s.skill_name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -439,11 +474,9 @@ export default function CommandCenterTab() {
                                 if (status === 'orange') bgClass = 'bg-amber-400 hover:bg-amber-500 border-amber-500 shadow-inner';
                                 if (status === 'green') bgClass = 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 shadow-inner';
 
-                                // Spaced Decay Trigger
                                 let isDecaying = false;
                                 if (status === 'green' && cellData?.next_review_date) {
-                                  const reviewDate = new Date(cellData.next_review_date);
-                                  if (new Date() >= reviewDate) isDecaying = true;
+                                  if (new Date() >= new Date(cellData.next_review_date)) isDecaying = true;
                                 }
 
                                 return (
@@ -510,7 +543,7 @@ export default function CommandCenterTab() {
             <form onSubmit={saveMemoryOverride} className="flex flex-col">
               <div className="p-5 space-y-4">
                 <p className="text-xs text-slate-500 font-medium leading-tight">
-                  Manually force this cell to Green (Mastered) and set a custom decay timer.
+                  Manually force this cell to Green (Mastered) and set a custom decay timer. It will trigger at 7:00 AM on the target day.
                 </p>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">Trigger ⏱️ Review In:</label>

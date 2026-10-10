@@ -4,15 +4,54 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 
-// Unified Reading Age Options
+// --- DnD Kit Imports ---
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
 const READING_AGES = [
-  'Phonics Phase 1 (Sound Awareness)',
-  'Phonics Phase 2 (Letter Sounds)',
-  'Phonics Phase 3 (Digraphs & Trigraphs)',
-  'Phonics Phase 4 (Blending Clusters)',
-  'Phonics Phase 5 (Alternative Spellings)',
-  'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'
+  'Phonics Phase 1 (Sound Awareness)', 'Phonics Phase 2 (Letter Sounds)',
+  'Phonics Phase 3 (Digraphs & Trigraphs)', 'Phonics Phase 4 (Blending Clusters)',
+  'Phonics Phase 5 (Alternative Spellings)', 'Year 1', 'Year 2', 'Year 3', 'Year 4', 'Year 5', 'Year 6'
 ];
+
+// --- Sortable Header Component ---
+function SortableHeader({ id, skill_name }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Translate.toString(transform),
+    transition,
+  };
+
+  return (
+    <th
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className="p-3 border-b border-slate-200 border-r min-w-[120px] max-w-[160px] text-center font-bold text-slate-700 bg-slate-50 leading-tight cursor-grab active:cursor-grabbing hover:bg-slate-100 relative z-20"
+    >
+      <div className="flex items-center justify-center gap-2">
+        <span className="text-slate-400 text-lg leading-none select-none">⋮⋮</span>
+        <span className="truncate">{skill_name}</span>
+      </div>
+    </th>
+  );
+}
 
 export default function CommandCenterTab() {
   const { userId } = useAuth();
@@ -21,7 +60,6 @@ export default function CommandCenterTab() {
   const supabase = useMemo(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
     if (!supabaseUrl || !supabaseKey) return null;
 
     return createClient(supabaseUrl, supabaseKey, {
@@ -47,7 +85,7 @@ export default function CommandCenterTab() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   
-  // Strict Error Surfacing States
+  // Protocol 2: Strict Error Surfacing States
   const [saveError, setSaveError] = useState(null);
   const [columnError, setColumnError] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -58,11 +96,8 @@ export default function CommandCenterTab() {
   const [skills, setSkills] = useState([]);
   const [progress, setProgress] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  // New Skill Input State
   const [newSkillName, setNewSkillName] = useState('');
 
-  // New Pupil Form State
   const initialPupilState = {
     name: '', surname_initial: '', gender: 'Neutral', year_group: '3',
     reading_age: 'Year 3', reading_tier: 'Expected', interests: '',
@@ -70,12 +105,15 @@ export default function CommandCenterTab() {
   };
   const [newPupil, setNewPupil] = useState(initialPupilState);
 
-  // Initial Data Fetch
-  useEffect(() => {
-    if (userId && supabase) fetchDashboardData();
-  }, [userId, supabase]);
+  // DnD Sensors (5px distance prevents accidental drags when clicking)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
-  // UI Transition State-Reset: Wipes inputs when changing subject tabs
+  useEffect(() => { if (userId && supabase) fetchDashboardData(); }, [userId, supabase]);
+
+  // Protocol 3: UI Transition State-Reset
   useEffect(() => {
     setNewSkillName('');
     setColumnError(null);
@@ -84,47 +122,31 @@ export default function CommandCenterTab() {
   const fetchDashboardData = async () => {
     if (!supabase) return;
     setIsLoading(true);
-    
     const [pupilsRes, skillsRes, progressRes] = await Promise.all([
       supabase.from('pupils').select('*').eq('user_id', userId).order('name', { ascending: true }),
       supabase.from('curriculum_skills').select('*').eq('user_id', userId).order('order_index', { ascending: true }),
       supabase.from('pupil_progress').select('*').eq('user_id', userId)
     ]);
-    
     if (pupilsRes.data) setPupils(pupilsRes.data);
     if (skillsRes.data) setSkills(skillsRes.data);
     if (progressRes.data) setProgress(progressRes.data);
-    
     setIsLoading(false);
   };
 
   // --- PUPIL INTAKE LOGIC ---
-  const closeAddModal = () => {
-    setIsAddModalOpen(false);
-    setSaveError(null);
-    setNewPupil(initialPupilState); 
-  };
+  const closeAddModal = () => { setIsAddModalOpen(false); setSaveError(null); setNewPupil(initialPupilState); };
 
   const handleAddPupil = async (e) => {
     e.preventDefault();
     if (!newPupil.name.trim() || !userId || !supabase) return;
-    setIsSaving(true);
-    setSaveError(null);
-
-    const pupilData = { ...newPupil, user_id: userId };
-    
+    setIsSaving(true); setSaveError(null);
     try {
-      const { data, error } = await supabase.from('pupils').insert([pupilData]).select();
+      const { data, error } = await supabase.from('pupils').insert([{ ...newPupil, user_id: userId }]).select();
       if (error) throw error;
-      if (data) {
-        setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name)));
-        closeAddModal();
-      }
+      if (data) { setPupils([...pupils, data[0]].sort((a, b) => a.name.localeCompare(b.name))); closeAddModal(); }
     } catch (error) {
       setSaveError(error.message || "Failed to connect to Supabase.");
-    } finally {
-      setIsSaving(false);
-    }
+    } finally { setIsSaving(false); }
   };
 
   const handleProfileUpdate = async (field, value) => {
@@ -135,49 +157,69 @@ export default function CommandCenterTab() {
     await supabase.from('pupils').update({ [field]: value }).eq('id', updatedPupil.id);
   };
 
-  // --- MATRIX ENGINE LOGIC ---
+  // --- MATRIX ENGINE & DND LOGIC ---
+  const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
+
   const handleAddSkill = async (e) => {
     e.preventDefault();
     if (!newSkillName.trim() || !userId || !supabase) return;
-    setIsAddingSkill(true);
-    setColumnError(null);
-
-    const subjectSkills = skills.filter(s => s.subject === activeTab);
-    const nextIndex = subjectSkills.length;
-
+    setIsAddingSkill(true); setColumnError(null);
+    const nextIndex = activeSkills.length;
     try {
       const { data, error } = await supabase
         .from('curriculum_skills')
         .insert([{ user_id: userId, subject: activeTab, skill_name: newSkillName.trim(), order_index: nextIndex }])
         .select();
-
       if (error) throw error;
-      
-      if (data) {
-        setSkills([...skills, data[0]]);
-        setNewSkillName('');
+      if (data) { setSkills([...skills, data[0]]); setNewSkillName(''); }
+    } catch (err) {
+      setColumnError(err.message || "Failed to add column.");
+    } finally { setIsAddingSkill(false); }
+  };
+
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !supabase) return;
+
+    setColumnError(null);
+
+    const oldIndex = activeSkills.findIndex(s => s.id === active.id);
+    const newIndex = activeSkills.findIndex(s => s.id === over.id);
+    const newOrder = arrayMove(activeSkills, oldIndex, newIndex);
+
+    // Optimistic UI Update: Re-map the global skills array instantly
+    const updatedSkills = skills.map(skill => {
+      const reorderedSkill = newOrder.find(ns => ns.id === skill.id);
+      return reorderedSkill ? { ...skill, order_index: newOrder.indexOf(reorderedSkill) } : skill;
+    });
+    setSkills(updatedSkills);
+
+    // Database Sync: Batch update the order_index
+    try {
+      for (let i = 0; i < newOrder.length; i++) {
+        const { error } = await supabase
+          .from('curriculum_skills')
+          .update({ order_index: i })
+          .eq('id', newOrder[i].id);
+        if (error) throw error;
       }
     } catch (err) {
-      console.error("Add Skill Error:", err);
-      setColumnError(err.message || "Failed to add column.");
-    } finally {
-      setIsAddingSkill(false);
+      console.error("Drag Error:", err);
+      setColumnError("Reordering failed: " + (err.message || "Database rejected save."));
+      fetchDashboardData(); // Revert to true database state
     }
   };
 
   const handleCellCycle = async (pupilId, skillId) => {
     if (!supabase) return;
-    
     const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
     const currentStatus = existing ? existing.status : 'blank';
-    
     const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
     const nextStatus = cycle[currentStatus];
     
     let newProgress = [...progress];
     if (existing) {
-      const index = newProgress.findIndex(p => p.id === existing.id);
-      newProgress[index] = { ...existing, status: nextStatus };
+      newProgress[newProgress.findIndex(p => p.id === existing.id)] = { ...existing, status: nextStatus };
     } else {
       newProgress.push({ pupil_id: pupilId, skill_id: skillId, status: nextStatus, user_id: userId, id: 'temp-'+Date.now() });
     }
@@ -186,20 +228,13 @@ export default function CommandCenterTab() {
     if (existing) {
       await supabase.from('pupil_progress').update({ status: nextStatus }).eq('id', existing.id);
     } else {
-      const { data } = await supabase.from('pupil_progress').insert([{
-        user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus
-      }]).select();
-      
-      if (data) {
-         setProgress(prev => prev.map(p => (p.pupil_id === pupilId && p.skill_id === skillId) ? data[0] : p));
-      }
+      const { data } = await supabase.from('pupil_progress').insert([{ user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus }]).select();
+      if (data) setProgress(prev => prev.map(p => (p.pupil_id === pupilId && p.skill_id === skillId) ? data[0] : p));
     }
   };
 
   const openPupilDrawer = (pupil) => { setSelectedPupil(pupil); setIsDrawerOpen(true); };
   const closeDrawer = () => { setIsDrawerOpen(false); setTimeout(() => setSelectedPupil(null), 300); };
-
-  const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
 
   return (
     <div className="flex flex-col h-screen bg-slate-50 pb-20 relative">
@@ -260,13 +295,7 @@ export default function CommandCenterTab() {
                   <h2 className="text-lg font-bold text-slate-800 capitalize mt-2">{activeTab.replace('-', ' ')}</h2>
                   <div className="flex flex-col items-end">
                     <form onSubmit={handleAddSkill} className="flex gap-2">
-                      <input 
-                        type="text" required
-                        value={newSkillName} 
-                        onChange={(e) => setNewSkillName(e.target.value)} 
-                        placeholder="New Column (e.g. Fractions)" 
-                        className="border border-slate-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-64"
-                      />
+                      <input type="text" required value={newSkillName} onChange={(e) => setNewSkillName(e.target.value)} placeholder="New Column (e.g. Fractions)" className="border border-slate-300 px-3 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-64" />
                       <button type="submit" disabled={isAddingSkill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors disabled:bg-indigo-400">
                         {isAddingSkill ? '...' : '+ Add Column'}
                       </button>
@@ -279,53 +308,51 @@ export default function CommandCenterTab() {
                   </div>
                 </div>
                 
-                <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm">
+                <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm relative">
                   {pupils.length === 0 ? (
                     <div className="p-12 text-center text-slate-400 text-sm">Add pupils in the Master Tab to populate this grid.</div>
                   ) : activeSkills.length === 0 ? (
                     <div className="p-12 text-center text-slate-400 text-sm">Use the "+ Add Column" button above to build your {activeTab} curriculum.</div>
                   ) : (
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-slate-50 sticky top-0 z-10 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
-                        <tr>
-                          <th className="p-3 border-b border-slate-200 border-r min-w-[150px] font-extrabold text-slate-700 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] sticky left-0 z-20">
-                            Class Roster
-                          </th>
-                          {activeSkills.map(skill => (
-                            <th key={skill.id} className="p-3 border-b border-slate-200 border-r min-w-[120px] max-w-[160px] text-center font-bold text-slate-700 bg-slate-50 leading-tight">
-                              {skill.skill_name}
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                      <table className="w-full text-left border-collapse min-w-max">
+                        <thead className="bg-slate-50 sticky top-0 z-30 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+                          <tr>
+                            <th className="p-3 border-b border-slate-200 border-r min-w-[150px] font-extrabold text-slate-700 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] sticky left-0 z-40">
+                              Class Roster
                             </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pupils.map(pupil => (
-                          <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group">
-                            <td className="p-3 border-b border-slate-200 border-r font-semibold text-slate-700 bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate max-w-[150px]">
-                              {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
-                            </td>
-                            {activeSkills.map(skill => {
-                              const cellData = progress.find(p => p.pupil_id === pupil.id && p.skill_id === skill.id);
-                              const status = cellData ? cellData.status : 'blank';
-                              
-                              let bgClass = 'bg-slate-50 hover:bg-slate-100 border-slate-200';
-                              if (status === 'red') bgClass = 'bg-red-500 hover:bg-red-600 border-red-600 shadow-inner';
-                              if (status === 'orange') bgClass = 'bg-amber-400 hover:bg-amber-500 border-amber-500 shadow-inner';
-                              if (status === 'green') bgClass = 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 shadow-inner';
-
-                              return (
-                                <td key={`${pupil.id}-${skill.id}`} className="p-1.5 border-b border-slate-200 border-r text-center">
-                                  <button 
-                                    onClick={() => handleCellCycle(pupil.id, skill.id)}
-                                    className={`w-full h-10 rounded transition-all border ${bgClass}`}
-                                  ></button>
-                                </td>
-                              );
-                            })}
+                            <SortableContext items={activeSkills.map(s => s.id)} strategy={horizontalListSortingStrategy}>
+                              {activeSkills.map(skill => (
+                                <SortableHeader key={skill.id} id={skill.id} skill_name={skill.skill_name} />
+                              ))}
+                            </SortableContext>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {pupils.map(pupil => (
+                            <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group">
+                              <td className="p-3 border-b border-slate-200 border-r font-semibold text-slate-700 bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] truncate max-w-[150px]">
+                                {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
+                              </td>
+                              {activeSkills.map(skill => {
+                                const cellData = progress.find(p => p.pupil_id === pupil.id && p.skill_id === skill.id);
+                                const status = cellData ? cellData.status : 'blank';
+                                let bgClass = 'bg-slate-50 hover:bg-slate-100 border-slate-200';
+                                if (status === 'red') bgClass = 'bg-red-500 hover:bg-red-600 border-red-600 shadow-inner';
+                                if (status === 'orange') bgClass = 'bg-amber-400 hover:bg-amber-500 border-amber-500 shadow-inner';
+                                if (status === 'green') bgClass = 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 shadow-inner';
+
+                                return (
+                                  <td key={`${pupil.id}-${skill.id}`} className="p-1.5 border-b border-slate-200 border-r text-center">
+                                    <button onClick={() => handleCellCycle(pupil.id, skill.id)} className={`w-full h-10 rounded transition-all border ${bgClass}`}></button>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </DndContext>
                   )}
                 </div>
               </div>
@@ -364,7 +391,6 @@ export default function CommandCenterTab() {
             <form id="add-pupil-form" onSubmit={handleAddPupil} className="flex flex-col overflow-hidden">
               <div className="p-6 overflow-y-auto space-y-5">
                 {saveError && <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded-lg text-sm font-medium">🚨 {saveError}</div>}
-
                 <div className="grid grid-cols-12 gap-4">
                   <div className="col-span-8">
                     <label className="block text-xs font-bold text-slate-700 mb-1">First Name *</label>
@@ -375,7 +401,6 @@ export default function CommandCenterTab() {
                     <input type="text" maxLength="1" value={newPupil.surname_initial} onChange={(e) => setNewPupil({...newPupil, surname_initial: e.target.value.toUpperCase()})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 text-center" placeholder="M" />
                   </div>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">Gender</label>
@@ -390,7 +415,6 @@ export default function CommandCenterTab() {
                     </select>
                   </div>
                 </div>
-
                 <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-4">
                   <div>
                     <label className="block text-xs font-bold text-indigo-800 mb-1">Reading Age</label>
@@ -405,12 +429,10 @@ export default function CommandCenterTab() {
                     </select>
                   </div>
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">3 Key Interests (For AI Context)</label>
                   <input type="text" value={newPupil.interests} onChange={(e) => setNewPupil({...newPupil, interests: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Minecraft, football, baking" />
                 </div>
-
                 <div className="grid grid-cols-3 gap-3">
                   <label className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100"><input type="checkbox" checked={newPupil.is_send} onChange={(e) => setNewPupil({...newPupil, is_send: e.target.checked})} className="rounded text-indigo-600 focus:ring-indigo-500" /><span className="text-xs font-bold text-slate-700">SEND</span></label>
                   <label className="flex items-center gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-100"><input type="checkbox" checked={newPupil.is_eal} onChange={(e) => setNewPupil({...newPupil, is_eal: e.target.checked})} className="rounded text-indigo-600 focus:ring-indigo-500" /><span className="text-xs font-bold text-slate-700">EAL</span></label>

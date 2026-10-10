@@ -28,7 +28,6 @@ const READING_AGES = [
 
 function SortableHeader({ id, skill_name }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
-
   const style = { transform: CSS.Translate.toString(transform), transition };
 
   return (
@@ -77,11 +76,17 @@ export default function CommandCenterTab() {
   const [activeTab, setActiveTab] = useState('master');
   const [isMounted, setIsMounted] = useState(false);
   const [selectedPupil, setSelectedPupil] = useState(null);
+  
+  // UI Modal States
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   
+  // Protocol 2 & 3: Memory Engine States
+  const [memoryModal, setMemoryModal] = useState({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
+  const [cellError, setCellError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [columnError, setColumnError] = useState(null);
+  
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingSkill, setIsAddingSkill] = useState(false);
   
@@ -110,10 +115,13 @@ export default function CommandCenterTab() {
     if (userId && supabase) fetchDashboardData();
   }, [userId, supabase]);
 
+  // Protocol 3: Map State-Resets on UI Transition
   useEffect(() => {
     if (isMounted) localStorage.setItem('ks2_active_tab', activeTab);
     setNewSkillName('');
     setColumnError(null);
+    setCellError(null);
+    setMemoryModal({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
   }, [activeTab, isMounted]);
 
   const fetchDashboardData = async () => {
@@ -189,10 +197,7 @@ export default function CommandCenterTab() {
 
     try {
       for (let i = 0; i < newOrder.length; i++) {
-        const { error } = await supabase
-          .from('curriculum_skills')
-          .update({ order_index: i })
-          .eq('id', newOrder[i].id);
+        const { error } = await supabase.from('curriculum_skills').update({ order_index: i }).eq('id', newOrder[i].id);
         if (error) throw error;
       }
     } catch (err) {
@@ -201,26 +206,118 @@ export default function CommandCenterTab() {
     }
   };
 
-  const handleCellCycle = async (pupilId, skillId) => {
+  // -------------------------------------------------------------
+  // THE MEMORY ENGINE: Click, Right-Click, and Override Handling
+  // -------------------------------------------------------------
+  
+  const handleCellCycle = async (pupilId, skillId, event) => {
+    if (event) event.preventDefault();
     if (!supabase) return;
-    const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
-    const currentStatus = existing ? existing.status : 'blank';
-    const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
-    const nextStatus = cycle[currentStatus];
+    setCellError(null);
     
-    let newProgress = [...progress];
-    if (existing) {
-      newProgress[newProgress.findIndex(p => p.id === existing.id)] = { ...existing, status: nextStatus };
-    } else {
-      newProgress.push({ pupil_id: pupilId, skill_id: skillId, status: nextStatus, user_id: userId, id: 'temp-'+Date.now() });
-    }
-    setProgress(newProgress);
+    try {
+      const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
+      const currentStatus = existing ? existing.status : 'blank';
+      const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
+      const nextStatus = cycle[currentStatus];
+      
+      // Automated Default Timer: +7 days if turned green. Wipe timer if turned anything else.
+      let nextReview = null;
+      if (nextStatus === 'green') {
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        nextReview = d.toISOString();
+      }
 
-    if (existing) {
-      await supabase.from('pupil_progress').update({ status: nextStatus }).eq('id', existing.id);
-    } else {
-      const { data } = await supabase.from('pupil_progress').insert([{ user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus }]).select();
-      if (data) setProgress(prev => prev.map(p => (p.pupil_id === pupilId && p.skill_id === skillId) ? data[0] : p));
+      const updatedCell = { 
+        ...existing, 
+        status: nextStatus, 
+        last_assessed_at: new Date().toISOString(),
+        next_review_date: nextReview
+      };
+
+      // Optimistic Update
+      let newProgress = [...progress];
+      if (existing) {
+        newProgress[newProgress.findIndex(p => p.id === existing.id)] = updatedCell;
+      } else {
+        newProgress.push({ pupil_id: pupilId, skill_id: skillId, status: nextStatus, user_id: userId, id: 'temp-'+Date.now(), last_assessed_at: updatedCell.last_assessed_at, next_review_date: nextReview });
+      }
+      setProgress(newProgress);
+
+      // Database Sync (Protocol 2 Defense)
+      if (existing) {
+        const { error } = await supabase.from('pupil_progress').update({ status: nextStatus, last_assessed_at: updatedCell.last_assessed_at, next_review_date: nextReview }).eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.from('pupil_progress').insert([{ user_id: userId, pupil_id: pupilId, skill_id: skillId, status: nextStatus, next_review_date: nextReview }]).select();
+        if (error) throw error;
+        if (data) setProgress(prev => prev.map(p => (p.pupil_id === pupilId && p.skill_id === skillId) ? data[0] : p));
+      }
+    } catch (err) {
+      setCellError(`Failed to update cell: ${err.message}`);
+      fetchDashboardData(); 
+    }
+  };
+
+  const handleRightClick = (e, pupilId, skillId) => {
+    e.preventDefault(); // Suppresses the browser menu (Works on mobile Long-Press)
+    setCellError(null);
+    const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
+    
+    setMemoryModal({
+      isOpen: true,
+      pupilId,
+      skillId,
+      notes: existing?.memory_notes || '',
+      days: '7'
+    });
+  };
+
+  const saveMemoryOverride = async (e) => {
+    e.preventDefault();
+    if (!supabase) return;
+    setCellError(null);
+    setIsSaving(true);
+    
+    try {
+      const d = new Date();
+      d.setDate(d.getDate() + parseInt(memoryModal.days));
+      const nextReview = d.toISOString();
+      const assessedAt = new Date().toISOString();
+
+      const existing = progress.find(p => p.pupil_id === memoryModal.pupilId && p.skill_id === memoryModal.skillId);
+      
+      // Override forces the cell to Green (Mastery) so the timer makes sense
+      const updatedCell = { 
+        ...existing, 
+        status: 'green', 
+        memory_notes: memoryModal.notes, 
+        next_review_date: nextReview,
+        last_assessed_at: assessedAt
+      };
+
+      // Optimistic
+      let newProgress = [...progress];
+      if (existing) {
+        newProgress[newProgress.findIndex(p => p.id === existing.id)] = updatedCell;
+        setProgress(newProgress);
+        const { error } = await supabase.from('pupil_progress').update({ status: 'green', memory_notes: memoryModal.notes, next_review_date: nextReview, last_assessed_at: assessedAt }).eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        newProgress.push({ pupil_id: memoryModal.pupilId, skill_id: memoryModal.skillId, status: 'green', user_id: userId, id: 'temp-'+Date.now(), memory_notes: memoryModal.notes, next_review_date: nextReview, last_assessed_at: assessedAt });
+        setProgress(newProgress);
+        const { data, error } = await supabase.from('pupil_progress').insert([{ user_id: userId, pupil_id: memoryModal.pupilId, skill_id: memoryModal.skillId, status: 'green', memory_notes: memoryModal.notes, next_review_date: nextReview }]).select();
+        if (error) throw error;
+        if (data) setProgress(prev => prev.map(p => (p.pupil_id === memoryModal.pupilId && p.skill_id === memoryModal.skillId) ? data[0] : p));
+      }
+
+      setMemoryModal({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
+    } catch(err) {
+      setCellError(`Override failed: ${err.message}`);
+      fetchDashboardData();
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -244,6 +341,13 @@ export default function CommandCenterTab() {
           </button>
         )}
       </header>
+
+      {/* Protocol 2: Matrix Error Banner */}
+      {cellError && (
+        <div className="bg-red-600 text-white text-xs font-bold px-4 py-2 text-center shrink-0 shadow-inner">
+          ⚠️ {cellError}
+        </div>
+      )}
 
       <main className="flex-1 overflow-auto p-4 sm:p-6 bg-slate-50 flex flex-col min-h-0">
         {isLoading ? (
@@ -335,13 +439,23 @@ export default function CommandCenterTab() {
                                 if (status === 'orange') bgClass = 'bg-amber-400 hover:bg-amber-500 border-amber-500 shadow-inner';
                                 if (status === 'green') bgClass = 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 shadow-inner';
 
+                                // Spaced Decay Trigger
+                                let isDecaying = false;
+                                if (status === 'green' && cellData?.next_review_date) {
+                                  const reviewDate = new Date(cellData.next_review_date);
+                                  if (new Date() >= reviewDate) isDecaying = true;
+                                }
+
                                 return (
                                   <td key={`${pupil.id}-${skill.id}`} className="p-1 border-b border-slate-200 border-r text-center align-middle">
-                                    <div className="flex items-center justify-center">
+                                    <div className="flex items-center justify-center relative">
                                       <button 
-                                        onClick={() => handleCellCycle(pupil.id, skill.id)} 
-                                        className={`w-8 h-8 rounded-sm transition-all border shadow-sm ${bgClass}`}
-                                      ></button>
+                                        onClick={(e) => handleCellCycle(pupil.id, skill.id, e)} 
+                                        onContextMenu={(e) => handleRightClick(e, pupil.id, skill.id)}
+                                        className={`w-8 h-8 rounded-sm transition-all border shadow-sm relative ${bgClass}`}
+                                      >
+                                        {isDecaying && <span className="absolute -top-2.5 -right-2 text-sm drop-shadow-md z-10 select-none pointer-events-none">⏱️</span>}
+                                      </button>
                                     </div>
                                   </td>
                                 );
@@ -384,6 +498,42 @@ export default function CommandCenterTab() {
           ))}
         </div>
       </nav>
+
+      {/* MEMORY OVERRIDE MODAL */}
+      {memoryModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-extrabold text-slate-800 flex items-center gap-2">🧠 Memory Override</h3>
+              <button onClick={() => setMemoryModal({...memoryModal, isOpen: false})} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
+            </div>
+            <form onSubmit={saveMemoryOverride} className="flex flex-col">
+              <div className="p-5 space-y-4">
+                <p className="text-xs text-slate-500 font-medium leading-tight">
+                  Manually force this cell to Green (Mastered) and set a custom decay timer.
+                </p>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Trigger ⏱️ Review In:</label>
+                  <select value={memoryModal.days} onChange={(e) => setMemoryModal({...memoryModal, days: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500">
+                    <option value="1">1 Day (Severe Struggle)</option>
+                    <option value="7">1 Week (Standard Anchor)</option>
+                    <option value="28">4 Weeks (Term Check)</option>
+                    <option value="84">12 Weeks (Deep Retrieval)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Specific Struggle Notes</label>
+                  <textarea rows="3" value={memoryModal.notes} onChange={(e) => setMemoryModal({...memoryModal, notes: e.target.value})} placeholder="e.g. Mixed up the denominator." className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 resize-none"></textarea>
+                </div>
+              </div>
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex gap-2 justify-end">
+                <button type="button" onClick={() => setMemoryModal({...memoryModal, isOpen: false})} className="px-4 py-2 text-sm font-bold text-slate-600 hover:text-slate-800">Cancel</button>
+                <button type="submit" disabled={isSaving} className={`px-4 py-2 text-white rounded-lg text-sm font-bold transition-colors ${isSaving ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}>Set Timer</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ADD PUPIL MODAL */}
       {isAddModalOpen && (

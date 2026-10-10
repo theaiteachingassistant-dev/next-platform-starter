@@ -28,7 +28,6 @@ export default function DashboardLayout({ children }) {
         
         <nav className="flex-1 py-6 space-y-2 px-3 overflow-y-auto">
           {navItems.map((item) => {
-            // Strict active state check
             const isActive = item.path === '/dashboard' ? pathname === '/dashboard' : pathname.includes(item.path);
             return (
               <Link key={item.name} href={item.path} className={`flex items-center gap-3 px-3 py-3 rounded-lg transition-colors ${isActive ? 'bg-indigo-600 text-white shadow-sm' : 'hover:bg-slate-800'}`}>
@@ -44,10 +43,6 @@ export default function DashboardLayout({ children }) {
         </div>
       </aside>
       
-      {/* 
-        This is the critical fix for the floating tabs. 
-        h-screen forces this container to exactly match the monitor height.
-      */}
       <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative bg-slate-50">
         {children}
       </main>

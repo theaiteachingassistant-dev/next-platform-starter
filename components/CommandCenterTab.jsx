@@ -125,6 +125,13 @@ export default function CommandCenterTab() {
     return [...pupils].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   }, [pupils]);
 
+  const renderPupilName = (pupil) => {
+    if (!pupil.name || !pupil.name.trim()) {
+      return <span className="text-red-500 italic text-sm">(Unnamed Pupil)</span>;
+    }
+    return `${pupil.name} ${pupil.surname_initial ? `${pupil.surname_initial}.` : ''}`;
+  };
+
   useEffect(() => {
     setIsMounted(true);
     const savedTab = localStorage.getItem('ks2_active_tab');
@@ -292,10 +299,14 @@ export default function CommandCenterTab() {
 
   const handleAddPupil = async (e) => {
     e.preventDefault();
-    if (!newPupil.name.trim() || !userId || !supabase) return;
+    if (!newPupil.name || !newPupil.name.trim()) {
+      setSaveError("Pupil must have a valid name.");
+      return;
+    }
+    if (!userId || !supabase) return;
     setIsSaving(true); setSaveError(null);
     try {
-      const { data, error } = await supabase.from('pupils').insert([{ ...newPupil, user_id: userId }]).select();
+      const { data, error } = await supabase.from('pupils').insert([{ ...newPupil, name: newPupil.name.trim(), user_id: userId }]).select();
       if (error) throw error;
       if (data) { setPupils([...pupils, data[0]]); closeAddModal(); }
     } catch (error) { setSaveError(error.message); } finally { setIsSaving(false); }
@@ -353,15 +364,15 @@ export default function CommandCenterTab() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative min-h-0 w-full">
-      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between sm:items-center shadow-sm z-10 shrink-0 gap-3">
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-2 flex flex-col sm:flex-row justify-between sm:items-center shadow-sm z-10 shrink-0 gap-2">
         <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-800 tracking-tight">Tactical Command Center</h1>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium mt-1">
+          <h1 className="text-lg sm:text-xl font-extrabold text-slate-800 tracking-tight leading-tight">Tactical Command Center</h1>
+          <p className="text-xs text-slate-500 font-medium">
             {activeTab === 'master' ? 'Master Staging Area: Ready for Sweep' : `${activeTab.replace('-', ' ').toUpperCase()} Intervention Matrix`}
           </p>
         </div>
         {activeTab === 'master' && (
-          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 sm:px-6 py-2.5 rounded-lg text-sm sm:text-base font-bold shadow-sm transition-all flex justify-center items-center gap-2">
+          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-all flex justify-center items-center gap-2">
             🚀 Execute Batch Sweep
           </button>
         )}
@@ -399,7 +410,7 @@ export default function CommandCenterTab() {
                       <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col hover:border-indigo-300 transition-colors">
                         <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-3">
                           <button onClick={() => openPupilDrawer(pupil)} className="font-extrabold text-slate-800 hover:text-indigo-600 transition-colors text-left">
-                            {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
+                            {renderPupilName(pupil)}
                           </button>
                           <span className="text-[10px] uppercase tracking-wider px-2 py-1 bg-slate-100 text-slate-600 rounded font-bold border border-slate-200">
                             {pupil.reading_age}
@@ -480,7 +491,7 @@ export default function CommandCenterTab() {
                             <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group">
                               <td className="p-3 border-b border-slate-200 border-r bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
                                 <button onClick={() => openPupilDrawer(pupil)} className="font-semibold text-slate-700 hover:text-indigo-600 transition-colors text-left w-full">
-                                  {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
+                                  {renderPupilName(pupil)}
                                 </button>
                               </td>
                               {activeSkills.map(skill => {
@@ -640,7 +651,7 @@ export default function CommandCenterTab() {
                 <div className="grid grid-cols-12 gap-4">
                   <div className="col-span-8">
                     <label className="block text-xs font-bold text-slate-700 mb-1">First Name *</label>
-                    <input type="text" required value={newPupil.name} onChange={(e) => setNewPupil({...newPupil, name: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Leo" />
+                    <input type="text" value={newPupil.name} onChange={(e) => setNewPupil({...newPupil, name: e.target.value})} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" placeholder="e.g. Leo" />
                   </div>
                   <div className="col-span-4">
                     <label className="block text-xs font-bold text-slate-700 mb-1">Initial</label>

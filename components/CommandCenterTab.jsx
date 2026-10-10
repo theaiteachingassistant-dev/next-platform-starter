@@ -362,36 +362,38 @@ export default function CommandCenterTab() {
       </main>
 
 <nav className="fixed bottom-0 w-full bg-white border-t border-slate-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
-        <div 
-          className="max-w-6xl mx-auto flex overflow-x-auto px-2"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-        >
-          {/* Hides the scrollbar on Chrome, Safari, and Edge while keeping swipe functionality */}
-          <style>{`
-            nav div::-webkit-scrollbar { display: none; }
-          `}</style>
-          
-          {[
-            { id: 'master', label: 'Master', icon: '🎯' },
-            { id: 'maths', label: 'Maths', icon: '➗' },
-            { id: 'writing', label: 'Writing', icon: '✍️' },
-            { id: 'reading', label: 'Reading', icon: '📖' },
-            { id: 'spelling', label: 'Spelling', icon: '🔤' },
-            { id: 'times-tables', label: 'Times Tables', icon: '✖️' }
-          ].map((tab) => (
-            <button 
-              key={tab.id} 
-              onClick={() => setActiveTab(tab.id)} 
-              className={`flex-1 min-w-[85px] shrink-0 sm:shrink py-4 flex flex-col items-center gap-1 border-t-2 transition-all ${
-                activeTab === tab.id 
-                  ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' 
-                  : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <span className="text-xl">{tab.icon}</span>
-              <span className="text-xs font-bold whitespace-nowrap">{tab.label}</span>
-            </button>
-          ))}
+        <div className="max-w-6xl mx-auto w-full">
+          <div 
+            className="flex overflow-x-auto px-2"
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {/* Hides the scrollbar on Chrome, Safari, and Edge while keeping swipe functionality */}
+            <style>{`
+              nav div::-webkit-scrollbar { display: none; }
+            `}</style>
+            
+            {[
+              { id: 'master', label: 'Master', icon: '🎯' },
+              { id: 'maths', label: 'Maths', icon: '➗' },
+              { id: 'writing', label: 'Writing', icon: '✍️' },
+              { id: 'reading', label: 'Reading', icon: '📖' },
+              { id: 'spelling', label: 'Spelling', icon: '🔤' },
+              { id: 'times-tables', label: 'Times Tables', icon: '✖️' }
+            ].map((tab) => (
+              <button 
+                key={tab.id} 
+                onClick={() => setActiveTab(tab.id)} 
+                className={`flex-1 min-w-[85px] shrink-0 py-4 flex flex-col items-center gap-1 border-t-2 transition-all ${
+                  activeTab === tab.id 
+                    ? 'border-indigo-600 text-indigo-600 bg-indigo-50/50' 
+                    : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span className="text-xl">{tab.icon}</span>
+                <span className="text-xs font-bold whitespace-nowrap">{tab.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </nav>
 

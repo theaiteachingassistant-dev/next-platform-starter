@@ -1,19 +1,50 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
+import { useSession, useAuth } from '@clerk/nextjs';
+import { createClient } from '@supabase/supabase-js';
 
 const GenerationContext = createContext(null);
 
 export function GenerationProvider({ children }) {
-  const [queue, setQueue] = useState([]); // [{ pupil, topics, isTestMode }]
+  const { session } = useSession();
+  const { userId } = useAuth();
+  
+  const [queue, setQueue] = useState([]);
   const [activeItem, setActiveItem] = useState(null);
   const [completedPacks, setCompletedPacks] = useState([]);
   const [failedPupils, setFailedPupils] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [totalBatchSize, setTotalBatchSize] = useState(0);
+  
+  // New state variables for Phase 4 Handoff
+  const [currentBatchId, setCurrentBatchId] = useState(null);
+  const [isBatchFinished, setIsBatchFinished] = useState(false);
 
   const isProcessingRef = useRef(isProcessing);
   isProcessingRef.current = isProcessing;
+
+  // Initialize secure Supabase connection
+  const supabase = useMemo(() => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return null;
+
+    return createClient(supabaseUrl, supabaseKey, {
+      global: {
+        fetch: async (url, options = {}) => {
+          try {
+            const clerkToken = await session?.getToken({ template: 'supabase' });
+            const headers = new Headers(options?.headers);
+            if (clerkToken) headers.set('Authorization', `Bearer ${clerkToken}`);
+            return fetch(url, { ...options, headers });
+          } catch (err) {
+            throw err;
+          }
+        },
+      },
+    });
+  }, [session]);
 
   // Protect against accidental tab closure during generation
   useEffect(() => {
@@ -30,11 +61,24 @@ export function GenerationProvider({ children }) {
   }, []);
 
   const addBatchToQueue = (items) => {
+    // Generate a unique batch ID for Phase 4 grouping
+    const newBatchId = `batch-${Date.now()}`;
+    setCurrentBatchId(newBatchId);
+    
     setCompletedPacks([]);
     setFailedPupils([]);
     setTotalBatchSize(items.length);
     setQueue(items);
     setIsProcessing(true);
+    setIsBatchFinished(false);
+  };
+
+  const dismissBanner = () => {
+    setIsBatchFinished(false);
+    setCompletedPacks([]);
+    setFailedPupils([]);
+    setTotalBatchSize(0);
+    setCurrentBatchId(null);
   };
 
   // Process the queue item by item
@@ -43,6 +87,7 @@ export function GenerationProvider({ children }) {
       if (queue.length === 0 && isProcessing) {
         setIsProcessing(false);
         setActiveItem(null);
+        setIsBatchFinished(true); // Flag the batch as fully complete and waiting for user click
       }
       return;
     }
@@ -83,6 +128,19 @@ export function GenerationProvider({ children }) {
       }
 
       if (success && packData) {
+        // STEP 2 INJECTION: Save to Supabase immediately
+        if (supabase && userId && currentItem.pupil?.id) {
+          try {
+            await supabase.from('generated_worksheets').insert({
+              user_id: userId,
+              pupil_id: currentItem.pupil.id,
+              batch_id: currentBatchId,
+              content: packData
+            });
+          } catch (dbError) {
+            console.error("Failed to save to Supabase:", dbError);
+          }
+        }
         setCompletedPacks((prev) => [...prev, packData]);
       } else {
         setFailedPupils((prev) => [...prev, currentItem]);
@@ -95,18 +153,21 @@ export function GenerationProvider({ children }) {
     };
 
     executeGeneration();
-  }, [queue, isProcessing]);
+  }, [queue, isProcessing, supabase, userId, currentBatchId]);
 
   return (
     <GenerationContext.Provider
       value={{
         addBatchToQueue,
+        dismissBanner,
         isProcessing,
+        isBatchFinished,
         activeItem,
         completedCount: completedPacks.length,
         totalBatchSize,
         completedPacks,
         failedPupils,
+        currentBatchId
       }}
     >
       {children}

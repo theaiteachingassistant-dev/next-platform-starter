@@ -94,7 +94,7 @@ export default function CommandCenterTab() {
   const [skillModal, setSkillModal] = useState({ isOpen: false, skill: null, isConfirmingDelete: false });
   
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [drawerStatView, setDrawerStatView] = useState('chart'); // 'chart' | 'green' | 'orange' | 'red'
+  const [drawerStatView, setDrawerStatView] = useState('chart'); 
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [memoryModal, setMemoryModal] = useState({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
@@ -130,47 +130,35 @@ export default function CommandCenterTab() {
   }, [pupils]);
 
   const renderPupilName = (pupil) => {
-    if (!pupil.name || !pupil.name.trim()) {
-      return <span className="text-red-500 italic text-sm">(Unnamed Pupil)</span>;
-    }
+    if (!pupil.name || !pupil.name.trim()) return <span className="text-red-500 italic text-sm">(Unnamed Pupil)</span>;
     return `${pupil.name} ${pupil.surname_initial ? `${pupil.surname_initial}.` : ''}`;
   };
 
   useEffect(() => {
     setIsMounted(true);
-    
-    // Check URL parameters for cross-navigation from Class Stats
     const qTab = searchParams.get('tab');
-    if (qTab && SUBJECTS.includes(qTab)) { 
-      setActiveTab(qTab); 
-    } else {
+    if (qTab && SUBJECTS.includes(qTab)) { setActiveTab(qTab); } 
+    else {
       const savedTab = localStorage.getItem('ks2_active_tab');
       if (savedTab) setActiveTab(savedTab);
     }
-    
     if (userId && supabase) fetchDashboardData();
   }, [userId, supabase, searchParams]);
 
   useEffect(() => {
-    // Automatically open the drawer if 'openDrawer' parameter exists
     if (!isLoading && pupils.length > 0) {
       const qDrawer = searchParams.get('openDrawer');
       if (qDrawer) {
         const pTarget = pupils.find(p => p.id === qDrawer);
-        if (pTarget) { 
-          setSelectedPupil(pTarget); 
-          setIsDrawerOpen(true); 
-        }
-        router.replace('/dashboard'); // Clean URL after trigger
+        if (pTarget) { setSelectedPupil(pTarget); setIsDrawerOpen(true); }
+        router.replace('/dashboard');
       }
     }
   }, [isLoading, pupils, searchParams, router]);
 
   useEffect(() => {
     if (isMounted) localStorage.setItem('ks2_active_tab', activeTab);
-    setNewSkillName('');
-    setColumnError(null);
-    setCellError(null);
+    setNewSkillName(''); setColumnError(null); setCellError(null);
     setMemoryModal({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
     setSkillModal({ isOpen: false, skill: null, isConfirmingDelete: false });
   }, [activeTab, isMounted]);
@@ -198,14 +186,10 @@ export default function CommandCenterTab() {
     for (const skill of subjectSkills) {
       const pData = progress.find(pr => pr.pupil_id === pupilId && pr.skill_id === skill.id);
       if (!pData || pData.status === 'blank') continue; 
-      
       if (pData.status === 'red') return skill.id; 
       if (pData.status === 'orange' && !firstOrange) firstOrange = skill.id;
-      
       if (pData.status === 'green' && pData.next_review_date) {
-        if (now >= new Date(pData.next_review_date) && !firstDecayingGreen) {
-          firstDecayingGreen = skill.id;
-        }
+        if (now >= new Date(pData.next_review_date) && !firstDecayingGreen) firstDecayingGreen = skill.id;
       }
     }
     return firstOrange || firstDecayingGreen || 'all-clear';
@@ -222,6 +206,7 @@ export default function CommandCenterTab() {
     return d.toISOString();
   };
 
+  // Phase 2: Click-Cycle Architecture
   const handleCellCycle = async (pupilId, skillId, event) => {
     if (event) event.preventDefault();
     if (!supabase) return;
@@ -229,12 +214,26 @@ export default function CommandCenterTab() {
     
     try {
       const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
-      const currentStatus = existing ? existing.status : 'blank';
-      const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
-      const nextStatus = cycle[currentStatus];
+      const baseStatus = existing ? existing.status : 'blank';
       
+      let isVisuallyBlue = false;
+      if (baseStatus === 'green' && existing?.next_review_date) {
+        if (new Date().getTime() >= new Date(existing.next_review_date).getTime()) {
+          isVisuallyBlue = true;
+        }
+      }
+
+      let nextStatus;
       let nextReview = null;
-      if (nextStatus === 'green') nextReview = getMorningReviewDate(7); 
+
+      if (isVisuallyBlue) {
+        nextStatus = 'green';
+        nextReview = getMorningReviewDate(84); // Option B: Reset to 12 weeks
+      } else {
+        const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
+        nextStatus = cycle[baseStatus];
+        if (nextStatus === 'green') nextReview = getMorningReviewDate(84); // Standard 12 weeks
+      }
 
       const updatedCell = { ...existing, status: nextStatus, last_assessed_at: new Date().toISOString(), next_review_date: nextReview };
       let newProgress = [...progress];
@@ -254,14 +253,11 @@ export default function CommandCenterTab() {
         if (error) throw error;
         if (data) setProgress(prev => prev.map(p => (p.pupil_id === pupilId && p.skill_id === skillId) ? data[0] : p));
       }
-    } catch (err) {
-      setCellError(`Failed to update cell: ${err.message}`); fetchDashboardData(); 
-    }
+    } catch (err) { setCellError(`Update failed: ${err.message}`); fetchDashboardData(); }
   };
 
   const handleRightClick = (e, pupilId, skillId) => {
-    e.preventDefault();
-    setCellError(null);
+    e.preventDefault(); setCellError(null);
     const existing = progress.find(p => p.pupil_id === pupilId && p.skill_id === skillId);
     setMemoryModal({ isOpen: true, pupilId, skillId, notes: existing?.memory_notes || '', days: '7' });
   };
@@ -292,9 +288,8 @@ export default function CommandCenterTab() {
         if (data) setProgress(prev => prev.map(p => (p.pupil_id === memoryModal.pupilId && p.skill_id === memoryModal.skillId) ? data[0] : p));
       }
       setMemoryModal({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
-    } catch(err) {
-      setCellError(`Override failed: ${err.message}`); fetchDashboardData();
-    } finally { setIsSaving(false); }
+    } catch(err) { setCellError(`Override failed: ${err.message}`); fetchDashboardData(); } 
+    finally { setIsSaving(false); }
   };
 
   const handleDeletePupil = async () => {
@@ -326,10 +321,7 @@ export default function CommandCenterTab() {
 
   const handleAddPupil = async (e) => {
     e.preventDefault();
-    if (!newPupil.name || !newPupil.name.trim()) {
-      setSaveError("Pupil must have a valid name.");
-      return;
-    }
+    if (!newPupil.name || !newPupil.name.trim()) { setSaveError("Pupil must have a valid name."); return; }
     if (!userId || !supabase) return;
     setIsSaving(true); setSaveError(null);
     try {
@@ -381,28 +373,10 @@ export default function CommandCenterTab() {
     await supabase.from('pupils').update({ [field]: value }).eq('id', updatedPupil.id);
   };
 
-  const openPupilDrawer = (pupil) => { 
-    setSelectedPupil(pupil); 
-    setDrawerStatView('chart'); 
-    setIsDrawerOpen(true); 
-  };
-  
-  const closeDrawer = () => { 
-    setIsDrawerOpen(false); 
-    setTimeout(() => { 
-      setSelectedPupil(null); 
-      setIsConfirmingDeletePupil(false); 
-      setDrawerStatView('chart'); 
-    }, 300); 
-  };
-  
-  const closeAddModal = () => { 
-    setIsAddModalOpen(false); 
-    setSaveError(null); 
-    setNewPupil(initialPupilState); 
-  };
+  const openPupilDrawer = (pupil) => { setSelectedPupil(pupil); setDrawerStatView('chart'); setIsDrawerOpen(true); };
+  const closeDrawer = () => { setIsDrawerOpen(false); setTimeout(() => { setSelectedPupil(null); setIsConfirmingDeletePupil(false); setDrawerStatView('chart'); }, 300); };
+  const closeAddModal = () => { setIsAddModalOpen(false); setSaveError(null); setNewPupil(initialPupilState); };
 
-  // Phase 1: Micro-Stats Calculation for the Widened Drawer
   const getDrawerStats = () => {
     if (!selectedPupil) return null;
     const pProg = progress.filter(p => p.pupil_id === selectedPupil.id && p.status !== 'blank');
@@ -420,6 +394,40 @@ export default function CommandCenterTab() {
 
   const drawerStats = getDrawerStats();
   const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
+
+  // Phase 2: Master Tab Reassessment Audit
+  const getBlueCells = () => {
+    const blueItems = [];
+    sortedPupils.forEach(pupil => {
+      const pProg = progress.filter(p => p.pupil_id === pupil.id && p.status === 'green' && p.next_review_date && new Date().getTime() >= new Date(p.next_review_date).getTime());
+      if (pProg.length > 0) {
+        const topics = pProg.map(pr => {
+          const sk = skills.find(s => s.id === pr.skill_id);
+          return sk ? `${sk.skill_name} (${sk.subject.toUpperCase()})` : null;
+        }).filter(Boolean);
+        if (topics.length > 0) blueItems.push({ pupil: pupil.name, topics });
+      }
+    });
+    return blueItems;
+  };
+
+  const blueRoster = useMemo(() => getBlueCells(), [progress, sortedPupils, skills]);
+
+  const printRoster = () => {
+    const printWin = window.open('', '_blank');
+    let html = '<html><head><title>Reassessment Roster</title><style>body{font-family:sans-serif; padding: 20px;} h2{color:#1e3a8a;} .pupil{margin-bottom:15px; border-bottom:1px solid #ccc; padding-bottom:10px;} .pupil h3{margin:0 0 5px 0;} ul{margin:0; padding-left:20px;} li{font-size:14px; margin-bottom:4px;}</style></head><body>';
+    html += '<h2>🔄 Memory Reassessment Roster (Decayed Topics)</h2>';
+    blueRoster.forEach(item => {
+      html += `<div class="pupil"><h3>${item.pupil}</h3><ul>`;
+      item.topics.forEach(t => html += `<li>${t}</li>`);
+      html += `</ul></div>`;
+    });
+    html += '</body></html>';
+    printWin.document.write(html);
+    printWin.document.close();
+    printWin.focus();
+    printWin.print();
+  };
 
   if (!isMounted) return null;
 
@@ -461,6 +469,31 @@ export default function CommandCenterTab() {
                   </button>
                 </div>
                 
+                {/* Phase 2: Reassessment Roster */}
+                {blueRoster.length > 0 && (
+                  <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-5 shadow-sm">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-3">
+                      <div>
+                        <h3 className="font-extrabold text-blue-900 flex items-center gap-2">🔄 Reassessment Roster</h3>
+                        <p className="text-xs text-blue-700 font-medium">These topics have reached 0% battery and require a quick verbal check.</p>
+                      </div>
+                      <button onClick={printRoster} className="text-sm font-bold bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-sm w-full sm:w-auto">
+                        Print Audit Checklist
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {blueRoster.map((item, idx) => (
+                        <div key={idx} className="bg-white p-3 rounded-lg border border-blue-100 shadow-sm">
+                          <span className="font-black text-slate-800 text-sm block mb-2">{item.pupil}</span>
+                          <ul className="text-xs text-slate-600 space-y-1.5 list-disc pl-4">
+                            {item.topics.map((t, i) => <li key={i} className="font-bold">{t}</li>)}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {sortedPupils.length === 0 ? (
                   <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl">
                     <p className="text-slate-500 font-medium">No pupils in roster.</p>
@@ -549,24 +582,51 @@ export default function CommandCenterTab() {
                         </thead>
                         <tbody>
                           {sortedPupils.map(pupil => (
-                            <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group">
-                              <td className="p-3 border-b border-slate-200 border-r bg-white group-hover:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
+                            <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group/row">
+                              <td className="p-3 border-b border-slate-200 border-r bg-white group-hover/row:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
                                 <button onClick={() => openPupilDrawer(pupil)} className="font-semibold text-slate-700 hover:text-indigo-600 transition-colors text-left w-full">
                                   {renderPupilName(pupil)}
                                 </button>
                               </td>
                               {activeSkills.map(skill => {
                                 const cellData = progress.find(p => p.pupil_id === pupil.id && p.skill_id === skill.id);
-                                const status = cellData ? cellData.status : 'blank';
+                                const baseStatus = cellData ? cellData.status : 'blank';
                                 
-                                let bgClass = 'bg-slate-50 hover:bg-slate-100 border-slate-200';
-                                if (status === 'red') bgClass = 'bg-red-500 hover:bg-red-600 border-red-600 shadow-inner';
-                                if (status === 'orange') bgClass = 'bg-amber-400 hover:bg-amber-500 border-amber-500 shadow-inner';
-                                if (status === 'green') bgClass = 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 shadow-inner';
+                                // Phase 2: Depletion Engine Math
+                                let visualStatus = baseStatus;
+                                let fillPercentage = 100;
 
-                                let isDecaying = false;
-                                if (status === 'green' && cellData?.next_review_date) {
-                                  if (new Date() >= new Date(cellData.next_review_date)) isDecaying = true;
+                                if (baseStatus === 'green' && cellData?.last_assessed_at && cellData?.next_review_date) {
+                                  const start = new Date(cellData.last_assessed_at).getTime();
+                                  const end = new Date(cellData.next_review_date).getTime();
+                                  const now = new Date().getTime();
+
+                                  if (now >= end) {
+                                    visualStatus = 'blue';
+                                    fillPercentage = 0;
+                                  } else {
+                                    const totalDuration = end - start;
+                                    const elapsed = now - start;
+                                    const drainPct = (elapsed / totalDuration) * 100;
+                                    fillPercentage = Math.max(0, 100 - drainPct);
+                                  }
+                                }
+
+                                let bgClass = 'bg-slate-50 hover:bg-slate-100 border-slate-200 group-hover/row:border-slate-300';
+                                let innerFill = null;
+
+                                if (visualStatus === 'red') bgClass = 'bg-red-500 hover:bg-red-600 border-red-600 shadow-inner';
+                                if (visualStatus === 'orange') bgClass = 'bg-amber-400 hover:bg-amber-500 border-amber-500 shadow-inner';
+                                if (visualStatus === 'blue') bgClass = 'bg-blue-500 hover:bg-blue-600 border-blue-600 shadow-inner';
+                                
+                                if (visualStatus === 'green') {
+                                  if (fillPercentage >= 80) {
+                                    bgClass = 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 shadow-inner';
+                                  } else {
+                                    // Liquid Drain UI Architecture
+                                    bgClass = 'bg-slate-50 border-emerald-600 shadow-inner relative overflow-hidden group/cell';
+                                    innerFill = <div className="absolute bottom-0 left-0 w-full bg-emerald-400 group-hover/cell:bg-emerald-500 transition-colors" style={{ height: `${fillPercentage}%` }}></div>;
+                                  }
                                 }
 
                                 return (
@@ -575,9 +635,9 @@ export default function CommandCenterTab() {
                                       <button 
                                         onClick={(e) => handleCellCycle(pupil.id, skill.id, e)} 
                                         onContextMenu={(e) => handleRightClick(e, pupil.id, skill.id)}
-                                        className={`w-8 h-8 rounded-sm transition-all border shadow-sm relative ${bgClass}`}
+                                        className={`w-8 h-8 rounded-sm transition-all border shadow-sm relative block ${bgClass}`}
                                       >
-                                        {isDecaying && <span className="absolute -top-2.5 -right-2 text-sm drop-shadow-md z-10 select-none pointer-events-none">⏱️</span>}
+                                        {innerFill}
                                       </button>
                                     </div>
                                   </td>
@@ -622,8 +682,6 @@ export default function CommandCenterTab() {
         </div>
       </nav>
 
-      {/* MODALS */}
-      
       {/* 1. Memory Override Modal */}
       {memoryModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -675,7 +733,6 @@ export default function CommandCenterTab() {
                   {skillModal.skill?.skill_name}
                 </div>
               </div>
-              
               <div className="pt-4 border-t border-red-100">
                 {!skillModal.isConfirmingDelete ? (
                   <button onClick={() => setSkillModal({ ...skillModal, isConfirmingDelete: true })} className="w-full py-2.5 border border-red-200 text-red-600 rounded-lg text-sm font-bold hover:bg-red-50 transition-colors">
@@ -705,7 +762,6 @@ export default function CommandCenterTab() {
               <h3 className="font-extrabold text-lg text-slate-800">Add New Pupil</h3>
               <button onClick={closeAddModal} className="text-slate-400 hover:text-slate-600 font-bold text-xl">&times;</button>
             </div>
-            
             <form id="add-pupil-form" onSubmit={handleAddPupil} className="flex flex-col overflow-hidden">
               <div className="p-6 overflow-y-auto space-y-5">
                 {saveError && <div className="bg-red-50 text-red-700 border border-red-200 p-3 rounded-lg text-sm font-medium">🚨 {saveError}</div>}
@@ -793,8 +849,7 @@ export default function CommandCenterTab() {
             </div>
             
             <div className="flex-1 flex gap-6 overflow-hidden">
-              
-              {/* LEFT COLUMN: Settings & Demographics */}
+              {/* LEFT COLUMN */}
               <div className="w-1/2 space-y-6 overflow-y-auto pr-2">
                 <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 space-y-4">
                   <h3 className="font-bold text-indigo-900 text-sm uppercase tracking-wider flex items-center gap-2">📖 Reading Engine Calibration</h3>
@@ -860,7 +915,7 @@ export default function CommandCenterTab() {
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: Micro-Stats Dashboard */}
+              {/* RIGHT COLUMN */}
               <div className="w-1/2 flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100 bg-slate-900 flex justify-between items-center shrink-0">
                   <h3 className="font-black text-white uppercase tracking-wider text-sm flex items-center gap-2">📊 Mastery Profile</h3>
@@ -868,15 +923,12 @@ export default function CommandCenterTab() {
                 </div>
 
                 <div className="p-6 flex-1 flex flex-col gap-8 overflow-y-auto">
-                  
-                  {/* Dynamic Area: Comparative Bar Chart OR Topic Text List */}
                   {drawerStatView === 'chart' ? (
                     <div className="space-y-4">
                       <div className="flex justify-between items-end">
                         <span className="text-xs font-black text-slate-400 uppercase tracking-wider">Comparative Benchmark</span>
                         <span className="text-2xl font-black text-emerald-500 leading-none">{drawerStats.pGreen}% Green</span>
                       </div>
-                      
                       <div className="space-y-3">
                         <div>
                           <div className="flex justify-between text-xs font-bold text-slate-700 mb-1">
@@ -922,7 +974,6 @@ export default function CommandCenterTab() {
                     </div>
                   )}
 
-                  {/* Interactive Pie Chart */}
                   <div className="border-t border-slate-100 pt-6 flex flex-col items-center flex-1 justify-center relative">
                     <p className="text-[10px] font-bold text-slate-400 mb-4 uppercase tracking-widest absolute top-4">Click slice to view topics</p>
                     {drawerStats.totalP === 0 ? (
@@ -936,7 +987,6 @@ export default function CommandCenterTab() {
                       </svg>
                     )}
                   </div>
-                  
                 </div>
               </div>
             </div>

@@ -18,7 +18,7 @@ export default function DashboardLayout({ children }) {
   ];
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans print:h-auto print:overflow-visible">
+    <div className="flex h-screen bg-slate-50 overflow-hidden font-sans print:block print:h-auto print:overflow-visible">
       <aside className={`print:hidden bg-slate-900 text-slate-300 transition-all duration-300 flex flex-col shrink-0 z-50 ${isSidebarCollapsed ? 'w-20' : 'w-64'}`}>
         <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800">
           {!isSidebarCollapsed && <span className="font-extrabold text-white truncate text-sm tracking-tight">KS2 Command.</span>}
@@ -44,7 +44,7 @@ export default function DashboardLayout({ children }) {
         </div>
       </aside>
       
-      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative bg-slate-50 print:h-auto print:overflow-visible">
+      <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative bg-slate-50 print:block print:h-auto print:overflow-visible">
         {children}
       </main>
     </div>

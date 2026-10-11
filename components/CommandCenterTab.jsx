@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useGeneration } from '../context/GenerationContext';
 
 import {
   DndContext,
@@ -64,6 +65,7 @@ export default function CommandCenterTab() {
   const { session } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { addBatchToQueue, isProcessing } = useGeneration();
   
   const supabase = useMemo(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -112,6 +114,7 @@ export default function CommandCenterTab() {
   const [newSkillName, setNewSkillName] = useState('');
 
   const [sweepOverrides, setSweepOverrides] = useState({});
+  const [selectedForSweep, setSelectedForSweep] = useState(new Set());
 
   const initialPupilState = {
     name: '', surname_initial: '', gender: 'Neutral', year_group: '3',
@@ -206,7 +209,6 @@ export default function CommandCenterTab() {
     return d.toISOString();
   };
 
-  // Phase 2: Click-Cycle Architecture
   const handleCellCycle = async (pupilId, skillId, event) => {
     if (event) event.preventDefault();
     if (!supabase) return;
@@ -228,11 +230,11 @@ export default function CommandCenterTab() {
 
       if (isVisuallyBlue) {
         nextStatus = 'green';
-        nextReview = getMorningReviewDate(84); // Option B: Reset to 12 weeks
+        nextReview = getMorningReviewDate(84); 
       } else {
         const cycle = { 'blank': 'red', 'red': 'orange', 'orange': 'green', 'green': 'blank' };
         nextStatus = cycle[baseStatus];
-        if (nextStatus === 'green') nextReview = getMorningReviewDate(84); // Standard 12 weeks
+        if (nextStatus === 'green') nextReview = getMorningReviewDate(84); 
       }
 
       const updatedCell = { ...existing, status: nextStatus, last_assessed_at: new Date().toISOString(), next_review_date: nextReview };
@@ -395,17 +397,21 @@ export default function CommandCenterTab() {
   const drawerStats = getDrawerStats();
   const activeSkills = skills.filter(s => s.subject === activeTab).sort((a, b) => a.order_index - b.order_index);
 
-  // Phase 2: Master Tab Reassessment Audit
   const getBlueCells = () => {
     const blueItems = [];
     sortedPupils.forEach(pupil => {
       const pProg = progress.filter(p => p.pupil_id === pupil.id && p.status === 'green' && p.next_review_date && new Date().getTime() >= new Date(p.next_review_date).getTime());
       if (pProg.length > 0) {
+        const blueSkillIds = [];
         const topics = pProg.map(pr => {
           const sk = skills.find(s => s.id === pr.skill_id);
-          return sk ? `${sk.skill_name} (${sk.subject.toUpperCase()})` : null;
+          if (sk) {
+            blueSkillIds.push(sk.id);
+            return `${sk.skill_name} (${sk.subject.toUpperCase()})`;
+          }
+          return null;
         }).filter(Boolean);
-        if (topics.length > 0) blueItems.push({ pupil: pupil.name, topics });
+        if (topics.length > 0) blueItems.push({ pupilId: pupil.id, pupil: pupil.name, topics, blueSkillIds });
       }
     });
     return blueItems;
@@ -429,6 +435,65 @@ export default function CommandCenterTab() {
     printWin.print();
   };
 
+  const toggleSelectPupil = (pupilId) => {
+    const newSet = new Set(selectedForSweep);
+    if (newSet.has(pupilId)) newSet.delete(pupilId);
+    else newSet.add(pupilId);
+    setSelectedForSweep(newSet);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedForSweep.size === sortedPupils.length) setSelectedForSweep(new Set());
+    else setSelectedForSweep(new Set(sortedPupils.map(p => p.id)));
+  };
+
+  // Build the generation payload and dispatch to context
+  const executeBatchSweep = () => {
+    if (selectedForSweep.size === 0 || isProcessing) return;
+    
+    const batch = Array.from(selectedForSweep).map(pupilId => {
+      const pupil = pupils.find(p => p.id === pupilId);
+      const mappedTopics = {};
+      
+      SUBJECTS.forEach(sub => {
+        const targetId = sweepOverrides[pupilId]?.[sub] || calculateTarget(pupilId, sub);
+        if (targetId === 'all-clear') {
+          mappedTopics[sub.replace('-', '_')] = 'General mixed revision covering KS2 basics.';
+        } else {
+          const sk = skills.find(s => s.id === targetId);
+          mappedTopics[sub.replace('-', '_')] = sk ? sk.skill_name : 'General mixed revision';
+        }
+      });
+
+      return { pupil, topics: mappedTopics, isTestMode: false };
+    });
+
+    addBatchToQueue(batch);
+    setSelectedForSweep(new Set());
+  };
+
+  const executeReassessmentSweep = () => {
+    if (blueRoster.length === 0 || isProcessing) return;
+
+    const batch = blueRoster.map(item => {
+      const pupil = pupils.find(p => p.id === item.pupilId);
+      const mappedTopics = {};
+      
+      SUBJECTS.forEach(sub => {
+        const subSkills = item.blueSkillIds.map(id => skills.find(s => s.id === id)).filter(s => s && s.subject === sub);
+        if (subSkills.length > 0) {
+          mappedTopics[sub.replace('-', '_')] = subSkills.map(s => s.skill_name).join(', ');
+        } else {
+          mappedTopics[sub.replace('-', '_')] = 'General mixed revision covering KS2 basics.';
+        }
+      });
+
+      return { pupil, topics: mappedTopics, isTestMode: false };
+    });
+
+    addBatchToQueue(batch);
+  };
+
   if (!isMounted) return null;
 
   return (
@@ -441,8 +506,12 @@ export default function CommandCenterTab() {
           </p>
         </div>
         {activeTab === 'master' && (
-          <button className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-all flex justify-center items-center gap-2">
-            🚀 Execute Batch Sweep
+          <button 
+            onClick={executeBatchSweep}
+            disabled={selectedForSweep.size === 0 || isProcessing}
+            className={`px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-all flex justify-center items-center gap-2 ${selectedForSweep.size === 0 || isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+          >
+            🚀 Execute Batch Sweep ({selectedForSweep.size})
           </button>
         )}
       </header>
@@ -463,13 +532,22 @@ export default function CommandCenterTab() {
             {activeTab === 'master' && (
               <div className="flex-1 overflow-auto">
                 <div className="flex justify-between items-center mb-6">
-                  <p className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Intervention Targets</p>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={sortedPupils.length > 0 && selectedForSweep.size === sortedPupils.length} 
+                        onChange={toggleSelectAll} 
+                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" 
+                      />
+                      Select All
+                    </label>
+                  </div>
                   <button onClick={() => setIsAddModalOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-bold transition-colors">
                     + Add Pupil
                   </button>
                 </div>
                 
-                {/* Phase 2: Reassessment Roster */}
                 {blueRoster.length > 0 && (
                   <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-5 shadow-sm">
                     <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-3">
@@ -477,9 +555,14 @@ export default function CommandCenterTab() {
                         <h3 className="font-extrabold text-blue-900 flex items-center gap-2">🔄 Reassessment Roster</h3>
                         <p className="text-xs text-blue-700 font-medium">These topics have reached 0% battery and require a quick verbal check.</p>
                       </div>
-                      <button onClick={printRoster} className="text-sm font-bold bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors shadow-sm w-full sm:w-auto">
-                        Print Audit Checklist
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={printRoster} className="text-sm font-bold bg-white text-blue-700 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors shadow-sm w-full sm:w-auto">
+                          Print Audit
+                        </button>
+                        <button onClick={executeReassessmentSweep} disabled={isProcessing} className={`text-sm font-bold px-4 py-2 rounded-lg transition-colors shadow-sm w-full sm:w-auto ${isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                          Generate Reassessment Pack
+                        </button>
+                      </div>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {blueRoster.map((item, idx) => (
@@ -501,11 +584,19 @@ export default function CommandCenterTab() {
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                     {sortedPupils.map(pupil => (
-                      <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 flex flex-col hover:border-indigo-300 transition-colors">
+                      <div key={pupil.id} className={`bg-white border rounded-xl shadow-sm p-4 flex flex-col transition-colors ${selectedForSweep.has(pupil.id) ? 'border-indigo-500 ring-1 ring-indigo-500 bg-indigo-50/10' : 'border-slate-200 hover:border-indigo-300'}`}>
                         <div className="flex justify-between items-center border-b border-slate-100 pb-3 mb-3">
-                          <button onClick={() => openPupilDrawer(pupil)} className="font-extrabold text-slate-800 hover:text-indigo-600 transition-colors text-left">
-                            {renderPupilName(pupil)}
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <input 
+                              type="checkbox" 
+                              checked={selectedForSweep.has(pupil.id)} 
+                              onChange={() => toggleSelectPupil(pupil.id)} 
+                              className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" 
+                            />
+                            <button onClick={() => openPupilDrawer(pupil)} className="font-extrabold text-slate-800 hover:text-indigo-600 transition-colors text-left">
+                              {renderPupilName(pupil)}
+                            </button>
+                          </div>
                           <span className="text-[10px] uppercase tracking-wider px-2 py-1 bg-slate-100 text-slate-600 rounded font-bold border border-slate-200">
                             {pupil.reading_age}
                           </span>
@@ -592,7 +683,6 @@ export default function CommandCenterTab() {
                                 const cellData = progress.find(p => p.pupil_id === pupil.id && p.skill_id === skill.id);
                                 const baseStatus = cellData ? cellData.status : 'blank';
                                 
-                                // Phase 2: Depletion Engine Math
                                 let visualStatus = baseStatus;
                                 let fillPercentage = 100;
 
@@ -623,7 +713,6 @@ export default function CommandCenterTab() {
                                   if (fillPercentage >= 80) {
                                     bgClass = 'bg-emerald-500 hover:bg-emerald-600 border-emerald-600 shadow-inner';
                                   } else {
-                                    // Liquid Drain UI Architecture
                                     bgClass = 'bg-slate-50 border-emerald-600 shadow-inner relative overflow-hidden group/cell';
                                     innerFill = <div className="absolute bottom-0 left-0 w-full bg-emerald-400 group-hover/cell:bg-emerald-500 transition-colors" style={{ height: `${fillPercentage}%` }}></div>;
                                   }

@@ -128,7 +128,7 @@ export default function BatchPrintPage() {
   const generatedDate = new Date(worksheets[0].created_at).toLocaleDateString('en-GB');
 
   return (
-    <div className="min-h-screen bg-slate-100 print:bg-white text-slate-900 font-sans">
+    <div className="h-full overflow-y-auto bg-slate-100 print:bg-white text-slate-900 font-sans print:h-auto print:overflow-visible">
       
       {/* NO-PRINT ACTION BAR */}
       <div className="print:hidden sticky top-0 z-50 bg-white border-b border-slate-200 px-6 py-4 shadow-sm flex justify-between items-center">
@@ -153,22 +153,33 @@ export default function BatchPrintPage() {
         {worksheets.map((sheet, index) => {
           const content = sheet.content;
           const pupilName = `${sheet.pupils?.name} ${sheet.pupils?.surname_initial || ''}`.trim();
+          
+          // Identify the very first subject generated for this specific child
+          const firstValidSubKey = SUBJECTS.find(sub => content[sub.key])?.key;
 
           return (
             <div key={sheet.id || index}>
               {SUBJECTS.map((sub) => {
                 if (!content[sub.key]) return null;
+                const isFirstPage = sub.key === firstValidSubKey;
+
                 return (
                   <div key={sub.key} className="break-after-page p-12 print:p-0 print:pt-4">
-                    {/* STANDARD HEADER */}
+                    {/* DYNAMIC HEADER: Name only renders on the first page */}
                     <div className="flex justify-between items-end border-b-2 border-slate-800 pb-2 mb-6">
                       <div>
-                        <h2 className="text-2xl font-black uppercase tracking-tight">{pupilName}</h2>
-                        <h3 className="text-lg font-bold text-slate-600">{sub.label}</h3>
+                        {isFirstPage && (
+                          <h2 className="text-2xl font-black uppercase tracking-tight">{pupilName}</h2>
+                        )}
+                        <h3 className={`font-bold text-slate-600 ${isFirstPage ? 'text-lg mt-1' : 'text-2xl'}`}>
+                          {sub.label}
+                        </h3>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-slate-500">Date: {generatedDate}</p>
-                      </div>
+                      {isFirstPage && (
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-slate-500">Date: {generatedDate}</p>
+                        </div>
+                      )}
                     </div>
                     {/* CONTENT */}
                     {renderSubjectContent(sub.key, content[sub.key])}

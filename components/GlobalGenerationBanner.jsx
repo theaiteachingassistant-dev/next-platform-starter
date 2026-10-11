@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { useGeneration } from '@/context/GenerationContext';
+import { useGeneration } from '../context/GenerationContext';
 
 export default function GlobalGenerationBanner() {
   const {

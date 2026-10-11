@@ -28,8 +28,9 @@ SUBJECT ARCHITECTURE:
 4. Spelling: Extract exactly 5 target words based on the provided topic/rule, integrated into practice tasks.
 5. Times Tables: Generate exactly 12 speed-check calculations targeting the exact topic.
 
-OUTPUT FORMAT:
-Generate standard Markdown text inside the schema values. Do NOT use markdown code block formatting in the output strings.`
+OUTPUT FORMAT & CRITICAL FORMATTING RULES:
+- Generate standard Markdown text inside the schema values. Do NOT use markdown code block formatting in the output strings.
+- LEAK PREVENTION: Never use Markdown formatting (bolding, italics, or underlining) to highlight target words, answers, or clues within the question text itself. Present the text plainly so the child must identify the answer independently.`
     });
 
     // The Structured Output Schema guaranteeing JSON reliability

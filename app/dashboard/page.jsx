@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import CommandCenterTab from '../../components/CommandCenterTab';
 
 export default function DashboardPage() {

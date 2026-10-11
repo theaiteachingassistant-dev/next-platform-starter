@@ -12,6 +12,7 @@ export default function DashboardLayout({ children }) {
   const navItems = [
     { name: 'Morning Briefing', icon: '🌅', path: '/dashboard/morning-briefing' },
     { name: 'Command Center', icon: '🎯', path: '/dashboard' },
+    { name: 'Worksheet Bank', icon: '🗂️', path: '/dashboard/worksheet-bank' },
     { name: 'Resource Engine', icon: '⚙️', path: '/dashboard/resource-engine' },
     { name: 'Curriculum & Settings', icon: '📚', path: '/dashboard/curriculum-settings' }
   ];

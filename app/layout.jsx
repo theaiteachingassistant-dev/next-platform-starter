@@ -1,16 +1,19 @@
 import { GenerationProvider } from '@/context/GenerationContext';
 import GlobalGenerationBanner from '@/components/GlobalGenerationBanner';
 import './globals.css';
-import { ClerkProvider } from '@clerk/nextjs'
+import { ClerkProvider } from '@clerk/nextjs';
 
 export default function RootLayout({ children }) {
   return (
     <ClerkProvider>
       <html lang="en">
         <body>
-          {children}
+          <GenerationProvider>
+            <GlobalGenerationBanner />
+            {children}
+          </GenerationProvider>
         </body>
       </html>
     </ClerkProvider>
-  )
+  );
 }

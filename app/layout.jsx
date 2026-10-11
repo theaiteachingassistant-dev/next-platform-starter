@@ -1,5 +1,5 @@
-import { GenerationProvider } from '@/context/GenerationContext';
-import GlobalGenerationBanner from '@/components/GlobalGenerationBanner';
+import { GenerationProvider } from '../context/GenerationContext';
+import GlobalGenerationBanner from '../components/GlobalGenerationBanner';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
 

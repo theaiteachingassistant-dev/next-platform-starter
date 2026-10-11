@@ -1,3 +1,4 @@
+export const maxDuration = 60;
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 import { NextResponse } from 'next/server';
 

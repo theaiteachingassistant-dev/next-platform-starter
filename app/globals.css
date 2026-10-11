@@ -1,35 +1,73 @@
 @import "tailwindcss";
 
-@media print {
-  body * { visibility: hidden; }
-  #printable-document, #printable-document * { visibility: visible; }
-  #printable-document { position: absolute; left: 0; top: 0; width: 100%; color: black; background: white; }
-  .no-print { display: none !important; }
-  .pack-boundary { page-break-before: always; }
-  .answer-page { page-break-before: always; }
-  .worksheet-section, p, ol, ul { page-break-inside: avoid; }
-  .worksheet-header { font-size: 22px; font-weight: bold; border-bottom: 2px solid black; padding-bottom: 8px; margin-bottom: 16px; }
-  body { background: white; }
-  .write-line { border-bottom: 1px solid #4b5563; margin-top: 12px; margin-bottom: 12px; width: 100%; height: 18px; }
-  .short-line { display: inline-block; border-bottom: 1px solid #4b5563; width: 120px; height: 16px; margin: 0 4px; }
+/* ----------------------------------------- */
+/* Global Utility Classes                    */
+/* ----------------------------------------- */
+.write-line { 
+  border-bottom: 1px solid #9ca3af; 
+  margin-top: 12px; 
+  margin-bottom: 12px; 
+  width: 100%; 
+  height: 18px; 
 }
 
-.write-line { border-bottom: 1px solid #9ca3af; margin-top: 12px; margin-bottom: 12px; width: 100%; height: 18px; }
-.short-line { display: inline-block; border-bottom: 1px solid #9ca3af; width: 120px; height: 16px; margin: 0 4px; }
-.worksheet-section { margin-bottom: 24px; }
+.short-line { 
+  display: inline-block; 
+  border-bottom: 1px solid #9ca3af; 
+  width: 120px; 
+  height: 16px; 
+  margin: 0 4px; 
+}
 
+.worksheet-section { 
+  margin-bottom: 24px; 
+}
+
+
+/* ----------------------------------------- */
+/* Master Print Engine Overrides             */
+/* ----------------------------------------- */
 @media print {
-  body * {
-    visibility: hidden;
-  }
-  #printable-worksheet, #printable-worksheet * {
-    visibility: visible;
-  }
-  #printable-worksheet {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
+  /* 1. Force the app to act as a standard flowing document, overriding React's flexbox */
+  html, body {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: white;
     color: black;
+  }
+  
+  /* 2. Prevent awkward text breaks across pages */
+  .worksheet-section, p, ol, ul, .break-inside-avoid { 
+    page-break-inside: avoid; 
+  }
+  
+  /* 3. Standardize page breaking utilities */
+  .pack-boundary, .answer-page, .break-before-page { 
+    page-break-before: always; 
+  }
+  .break-after-page {
+    page-break-after: always;
+  }
+
+  /* 4. Print-specific stylistic adjustments */
+  .no-print { 
+    display: none !important; 
+  }
+  
+  .worksheet-header { 
+    font-size: 22px; 
+    font-weight: bold; 
+    border-bottom: 2px solid black; 
+    padding-bottom: 8px; 
+    margin-bottom: 16px; 
+  }
+  
+  .write-line { 
+    border-bottom: 1px solid #4b5563; 
+  }
+  
+  .short-line { 
+    border-bottom: 1px solid #4b5563; 
   }
 }

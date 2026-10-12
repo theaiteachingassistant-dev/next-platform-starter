@@ -191,42 +191,42 @@ export default function BatchPrintPage() {
         })}
 
         {/* PART 2: THE ANSWER KEYS */}
-        <div className="p-12 print:p-0 print:pt-4">
-          <div className="border-b-4 border-slate-900 pb-4 mb-8">
-            <h1 className="text-3xl font-black uppercase tracking-tight">Master Answer Keys</h1>
-            <p className="text-slate-600 font-bold">Teacher Copy - {generatedDate}</p>
-          </div>
-
-          <div className="columns-1 md:columns-2 print:columns-2 gap-8">
-            {worksheets.map((sheet, index) => {
-              const content = sheet.content;
-              const pupilName = `${sheet.pupils?.name} ${sheet.pupils?.surname_initial || ''}`.trim();
-
-              return (
-                <div key={`answers-${index}`} className="mb-8 break-inside-avoid">
-                  <h2 className="text-xl font-extrabold bg-slate-100 print:bg-transparent border-b border-slate-300 print:border-black py-1 px-2 print:px-0 mb-3 uppercase">
-                    {pupilName}
-                  </h2>
-                  <div className="space-y-4 px-2 print:px-0 text-sm print:text-[10pt]">
-                    {SUBJECTS.map((sub) => {
-                      if (!content[sub.key]?.answer_key) return null;
-                      return (
-                        <div key={`ans-${sub.key}`}>
-                          <h4 className="font-bold underline mb-1">{sub.label}</h4>
-                          <div className="prose prose-sm print:prose-p:my-1 text-slate-700 print:text-black">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {content[sub.key].answer_key}
-                            </ReactMarkdown>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+        {worksheets.map((sheet, index) => {
+          const content = sheet.content;
+          const pupilName = `${sheet.pupils?.name} ${sheet.pupils?.surname_initial || ''}`.trim();
+          
+          return (
+            <div key={`answers-${index}`} className="break-after-page p-12 print:p-0 print:pt-4">
+              <div className="flex justify-between items-end border-b-2 border-slate-800 pb-2 mb-6">
+                <div>
+                  <h2 className="text-2xl font-black uppercase tracking-tight">{pupilName}</h2>
+                  <h3 className="font-bold text-slate-600 text-lg mt-1">Answer Keys</h3>
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-slate-500">Date: {generatedDate}</p>
+                </div>
+              </div>
+
+              <div className="space-y-6 text-sm print:text-[11pt]">
+                {SUBJECTS.map((sub) => {
+                  if (!content[sub.key]?.answer_key) return null;
+                  return (
+                    <div key={`ans-${sub.key}`} className="bg-slate-50 print:bg-transparent p-4 print:p-0 rounded-lg border border-slate-200 print:border-none">
+                      <h4 className="font-bold text-indigo-900 print:text-black mb-2 border-b border-slate-200 pb-1 uppercase tracking-wide">
+                        {sub.label}
+                      </h4>
+                      <div className="prose max-w-none prose-sm print:prose-p:my-1 text-slate-800 print:text-black leading-relaxed">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {content[sub.key].answer_key}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
 
       </div>
     </div>

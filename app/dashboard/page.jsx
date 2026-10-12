@@ -592,11 +592,13 @@ function CommandCenterContent() {
         </div>
       </nav>
 
+      {/* 3. Passing supabase and userId to the drawer so it can save notes */}
       <PupilDrawer 
         isDrawerOpen={isDrawerOpen} closeDrawer={closeDrawer} selectedPupil={selectedPupil} 
         handleProfileUpdate={handleProfileUpdate} drawerStats={drawerStats} drawerStatView={drawerStatView} 
         setDrawerStatView={setDrawerStatView} skills={skills} isConfirmingDeletePupil={isConfirmingDeletePupil} 
         setIsConfirmingDeletePupil={setIsConfirmingDeletePupil} handleDeletePupil={handleDeletePupil} READING_AGES={READING_AGES}
+        supabase={supabase} userId={userId}
       />
 
       {memoryModal.isOpen && (

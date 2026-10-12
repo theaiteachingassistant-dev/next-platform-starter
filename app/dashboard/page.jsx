@@ -152,7 +152,7 @@ function CommandCenterContent() {
     }
   }, []);
 
-  // Voice Engine Routing Logic
+  // Voice Engine Routing Logic (Upgraded with UK Classroom Intent Dictionary)
   useEffect(() => {
     if (!recognition) return;
     
@@ -187,8 +187,23 @@ function CommandCenterContent() {
         };
         setPendingAction({ action, message: `📝 Queuing ${category} note for ${targetPupil.name}...` });
       } else {
-        const colors = ['red', 'orange', 'green'];
-        const colorMatch = colors.find(c => lower.includes(c));
+        
+        // UPGRADED INTENT DICTIONARY
+        const colorIntents = {
+          green: ['achieved', 'mastered', 'passed', 'got it', 'green', 'secure', 'nailed it', 'smashed it', 'cracked it', 'sorted', 'spot on', 'aced it', 'understood', 'got the hang of it', 'complete'],
+          orange: ['developing', 'getting there', 'almost', 'orange', 'emerging', 'progressing', 'working towards', 'nearly there', 'ticking along', 'on the way', 'partial'],
+          red: ['struggling', 'help', 'failed', 'stuck', 'red', 'wobbly', 'lost', 'confused', 'intervention', 'clueless', "hasn't got it", 'below', 'hit a wall'],
+          blue: ['forgot', 'decayed', 'recap', 'blue', 'rusty', 'slipped', 'forgotten', 'review', 'mind blank', 'gone backwards', 'recap needed']
+        };
+
+        let colorMatch = null;
+        for (const [color, phrases] of Object.entries(colorIntents)) {
+          if (phrases.some(phrase => lower.includes(phrase))) {
+            colorMatch = color;
+            break;
+          }
+        }
+
         const targetSkill = skills.find(s => lower.includes(s.skill_name.toLowerCase()));
         
         if (targetSkill && colorMatch) {

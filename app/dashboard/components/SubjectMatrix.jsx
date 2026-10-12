@@ -35,9 +35,21 @@ function SortableHeader({ id, skill_name, onSettingsClick }) {
 }
 
 export default function SubjectMatrix({
-  activeTab, handleAddSkill, newSkillName, setNewSkillName, isAddingSkill,
+  activeTab, handleAddSkill, newSkillName, setNewSkillName, isAddingSkill, activeFilter,
   columnError, sortedPupils, activeSkills, handleDragEnd, openSkillSettings,
   openPupilDrawer, renderPupilName, progress, handleCellCycle, handleRightClick, sensors
+
+  // Add this inside the component to filter the grid
+  const filteredPupils = sortedPupils.filter(pupil => {
+    if (activeFilter === 'all') return true;
+    const hasMatch = activeSkills.some(skill => {
+      const cell = progress.find(p => p.pupil_id === pupil.id && p.skill_id === skill.id);
+      if (!cell) return false;
+      if (activeFilter === 'blue') return cell.status === 'green' && cell.next_review_date && new Date() >= new Date(cell.next_review_date);
+      return cell.status === activeFilter;
+    });
+    return hasMatch;
+  });
 }) {
   return (
     <div className="h-full flex flex-col flex-1 min-h-0">
@@ -59,7 +71,7 @@ export default function SubjectMatrix({
       </div>
       
       <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm relative min-h-0">
-        {sortedPupils.length === 0 ? (
+        {filteredPupils.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">Add pupils in the Master Tab to populate this grid.</div>
         ) : activeSkills.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">Use the "+ Add Column" button above to build your {activeTab} curriculum.</div>
@@ -79,7 +91,7 @@ export default function SubjectMatrix({
                 </tr>
               </thead>
               <tbody>
-                {sortedPupils.map(pupil => (
+                {filteredPupils.map(pupil => (
                   <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group/row">
                     <td className="p-3 border-b border-slate-200 border-r bg-white group-hover/row:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
                       <button onClick={() => openPupilDrawer(pupil)} className="font-semibold text-slate-700 hover:text-indigo-600 transition-colors text-left w-full">

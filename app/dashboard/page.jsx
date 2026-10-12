@@ -82,6 +82,12 @@ function CommandCenterContent() {
   const [sweepOverrides, setSweepOverrides] = useState({});
   const [selectedForSweep, setSelectedForSweep] = useState(new Set());
 
+  // Voice Engine State
+  const [recognition, setRecognition] = useState(null);
+  const [isListening, setIsListening] = useState(false);
+  const [toastMessage, setToastMessage] = useState(null);
+  const [pendingAction, setPendingAction] = useState(null);
+
   const initialPupilState = {
     name: '', surname_initial: '', gender: 'Neutral', year_group: '3',
     reading_age: 'Year 3', reading_tier: 'Expected', interests: '',
@@ -131,6 +137,107 @@ function CommandCenterContent() {
     setMemoryModal({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
     setSkillModal({ isOpen: false, skill: null, isConfirmingDelete: false });
   }, [activeTab, isMounted]);
+
+  // Voice Engine Initialization
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRec) {
+        const rec = new SpeechRec();
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.lang = 'en-GB';
+        setRecognition(rec);
+      }
+    }
+  }, []);
+
+  // Voice Engine Routing Logic
+  useEffect(() => {
+    if (!recognition) return;
+    
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      const lower = text.toLowerCase();
+      
+      const targetPupil = pupils.find(p => lower.includes(p.name.toLowerCase()));
+      if (!targetPupil) {
+        setToastMessage(`❌ Could not identify pupil in: "${text}"`);
+        setTimeout(() => setToastMessage(null), 4000);
+        return;
+      }
+
+      if (lower.includes("note")) {
+        let category = 'General';
+        if (lower.includes("behavior") || lower.includes("behaviour")) category = 'Behavior';
+        if (lower.includes("academic")) category = 'Academic';
+        if (lower.includes("parent")) category = 'Parent Contact';
+        if (lower.includes("send") || lower.includes("intervention")) category = 'SEND / Intervention';
+
+        const action = async () => {
+          await supabase.from('pupil_notes').insert([{
+            user_id: userId,
+            pupil_id: targetPupil.id,
+            content: `🗣️ Dictated: ${text}`,
+            category: category
+          }]);
+        };
+        setPendingAction({ action, message: `📝 Queuing ${category} note for ${targetPupil.name}...` });
+      } else {
+        const colors = ['red', 'orange', 'green'];
+        const colorMatch = colors.find(c => lower.includes(c));
+        const targetSkill = skills.find(s => lower.includes(s.skill_name.toLowerCase()));
+        
+        if (targetSkill && colorMatch) {
+          const action = async () => {
+            const existing = progress.find(p => p.pupil_id === targetPupil.id && p.skill_id === targetSkill.id);
+            let nextReview = colorMatch === 'green' ? getMorningReviewDate(84) : null;
+            
+            let newProgress = [...progress];
+            if (existing) {
+              const updated = { ...existing, status: colorMatch, next_review_date: nextReview, last_assessed_at: new Date().toISOString() };
+              newProgress[newProgress.findIndex(p => p.id === existing.id)] = updated;
+              setProgress(newProgress);
+              await supabase.from('pupil_progress').update({ status: colorMatch, next_review_date: nextReview, last_assessed_at: new Date().toISOString() }).eq('id', existing.id);
+            } else {
+              const tempObj = { pupil_id: targetPupil.id, skill_id: targetSkill.id, status: colorMatch, user_id: userId, id: 'temp-'+Date.now(), next_review_date: nextReview, last_assessed_at: new Date().toISOString() };
+              newProgress.push(tempObj);
+              setProgress(newProgress);
+              await supabase.from('pupil_progress').insert([{ user_id: userId, pupil_id: targetPupil.id, skill_id: targetSkill.id, status: colorMatch, next_review_date: nextReview }]);
+            }
+          };
+          setPendingAction({ action, message: `🔄 Updating ${targetPupil.name}: ${targetSkill.skill_name} to ${colorMatch.toUpperCase()}...` });
+        } else {
+          setToastMessage(`❌ Command not understood: "${text}"`);
+          setTimeout(() => setToastMessage(null), 4000);
+        }
+      }
+    };
+  }, [recognition, pupils, skills, progress, userId, supabase]);
+
+  // The 3-Second Holding Queue Timer
+  useEffect(() => {
+    if (pendingAction) {
+      const timer = setTimeout(() => {
+        pendingAction.action();
+        setPendingAction(null);
+        setToastMessage("✅ Action executed securely.");
+        setTimeout(() => setToastMessage(null), 2500);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [pendingAction]);
+
+  const toggleMicrophone = () => {
+    if (!recognition) {
+      alert("Voice dictation is not supported in this browser. Please use Chrome.");
+      return;
+    }
+    isListening ? recognition.stop() : recognition.start();
+  };
 
   const fetchDashboardData = async () => {
     if (!supabase) return;
@@ -496,6 +603,16 @@ function CommandCenterContent() {
         </div>
         
         <div className="flex items-center gap-3">
+          
+          {/* THE NEW VOICE DICTATION MICROPHONE */}
+          <button 
+            onClick={toggleMicrophone}
+            className={`flex items-center justify-center w-10 h-10 rounded-full shadow-sm transition-all border ${isListening ? 'bg-red-500 text-white border-red-600 animate-pulse' : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-300'}`}
+            title="Voice Dictation"
+          >
+            🎙️
+          </button>
+
           <select 
             value={activeFilter} 
             onChange={(e) => setActiveFilter(e.target.value)} 
@@ -531,6 +648,21 @@ function CommandCenterContent() {
           )}
         </div>
       </header>
+
+      {/* THE 3-SECOND TOAST HOLDING QUEUE */}
+      {(pendingAction || toastMessage) && (
+        <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-full shadow-2xl flex items-center gap-4 z-50 transition-all border border-slate-700">
+          <span className="font-bold text-sm">{pendingAction ? pendingAction.message : toastMessage}</span>
+          {pendingAction && (
+            <button 
+              onClick={() => { setPendingAction(null); setToastMessage("🚫 Action undone."); setTimeout(() => setToastMessage(null), 2500); }}
+              className="bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-colors shadow-sm"
+            >
+              Undo
+            </button>
+          )}
+        </div>
+      )}
 
       {cellError && (
         <div className="bg-red-600 text-white text-xs font-bold px-4 py-2 text-center shrink-0 shadow-inner">
@@ -592,7 +724,6 @@ function CommandCenterContent() {
         </div>
       </nav>
 
-      {/* 3. Passing supabase and userId to the drawer so it can save notes */}
       <PupilDrawer 
         isDrawerOpen={isDrawerOpen} closeDrawer={closeDrawer} selectedPupil={selectedPupil} 
         handleProfileUpdate={handleProfileUpdate} drawerStats={drawerStats} drawerStatView={drawerStatView} 

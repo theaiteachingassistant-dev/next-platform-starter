@@ -37,10 +37,10 @@ function SortableHeader({ id, skill_name, onSettingsClick }) {
 export default function SubjectMatrix({
   activeTab, handleAddSkill, newSkillName, setNewSkillName, isAddingSkill, activeFilter,
   columnError, sortedPupils, activeSkills, handleDragEnd, openSkillSettings,
-  openPupilDrawer, renderPupilName, progress, handleCellCycle, handleRightClick, sensors
+  openPupilDrawer, renderPupilName, progress, handleCellCycle, handleRightClick, sensors,
+  selectedForSweep, toggleSelectPupil, toggleSelectAll
 }) {
   
-  // The filter logic now safely lives inside the function body
   const filteredPupils = sortedPupils.filter(pupil => {
     if (activeFilter === 'all') return true;
     const hasMatch = activeSkills.some(skill => {
@@ -73,7 +73,7 @@ export default function SubjectMatrix({
       
       <div className="flex-1 overflow-auto border border-slate-200 rounded-xl bg-white shadow-sm relative min-h-0">
         {filteredPupils.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-sm">Add pupils in the Master Tab to populate this grid.</div>
+          <div className="p-12 text-center text-slate-400 text-sm">No pupils match the current filter.</div>
         ) : activeSkills.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">Use the "+ Add Column" button above to build your {activeTab} curriculum.</div>
         ) : (
@@ -82,7 +82,15 @@ export default function SubjectMatrix({
               <thead className="bg-slate-50 sticky top-0 z-30 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
                 <tr>
                   <th className="p-3 border-b border-slate-200 border-r w-auto whitespace-nowrap pr-6 font-extrabold text-slate-700 bg-slate-50 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] sticky left-0 z-40 align-bottom pb-2">
-                    Class Roster
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="checkbox" 
+                        checked={filteredPupils.length > 0 && filteredPupils.every(p => selectedForSweep.has(p.id))} 
+                        onChange={() => toggleSelectAll(filteredPupils)} 
+                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" 
+                      />
+                      <span>Class Roster</span>
+                    </div>
                   </th>
                   <SortableContext items={activeSkills.map(s => s.id)} strategy={horizontalListSortingStrategy}>
                     {activeSkills.map(skill => (
@@ -95,9 +103,17 @@ export default function SubjectMatrix({
                 {filteredPupils.map(pupil => (
                   <tr key={pupil.id} className="hover:bg-slate-50 transition-colors group/row">
                     <td className="p-3 border-b border-slate-200 border-r bg-white group-hover/row:bg-slate-50 sticky left-0 z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] w-auto whitespace-nowrap pr-6">
-                      <button onClick={() => openPupilDrawer(pupil)} className="font-semibold text-slate-700 hover:text-indigo-600 transition-colors text-left w-full">
-                        {renderPupilName(pupil)}
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <input 
+                          type="checkbox" 
+                          checked={selectedForSweep.has(pupil.id)} 
+                          onChange={() => toggleSelectPupil(pupil.id)} 
+                          className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer" 
+                        />
+                        <button onClick={() => openPupilDrawer(pupil)} className="font-semibold text-slate-700 hover:text-indigo-600 transition-colors text-left w-full">
+                          {renderPupilName(pupil)}
+                        </button>
+                      </div>
                     </td>
                     {activeSkills.map(skill => {
                       const cellData = progress.find(p => p.pupil_id === pupil.id && p.skill_id === skill.id);

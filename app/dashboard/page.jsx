@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -20,7 +20,8 @@ const READING_AGES = [
 
 const SUBJECTS = ['maths', 'writing', 'reading', 'spelling', 'times-tables'];
 
-export default function CommandCenterTab() {
+// 1. Renamed from default export to an internal component
+function CommandCenterContent() {
   const { userId } = useAuth();
   const { session } = useSession();
   const searchParams = useSearchParams();
@@ -681,5 +682,14 @@ export default function CommandCenterTab() {
         </div>
       )}
     </div>
+  );
+}
+
+// 2. The new default export that strictly wraps the content in Suspense for Vercel's static builder
+export default function CommandCenterTab() {
+  return (
+    <Suspense fallback={<div className="flex justify-center items-center h-screen bg-slate-50 text-slate-500 font-bold">Loading Tactical Command Center...</div>}>
+      <CommandCenterContent />
+    </Suspense>
   );
 }

@@ -418,9 +418,20 @@ function CommandCenterContent() {
     setSelectedForSweep(newSet);
   };
 
-  const toggleSelectAll = () => {
-    if (selectedForSweep.size === sortedPupils.length) setSelectedForSweep(new Set());
-    else setSelectedForSweep(new Set(sortedPupils.map(p => p.id)));
+  const toggleSelectAll = (customList) => {
+    const listToUse = (customList && Array.isArray(customList)) ? customList : sortedPupils;
+    const ids = listToUse.map(p => p.id);
+    const allSelected = ids.length > 0 && ids.every(id => selectedForSweep.has(id));
+    
+    if (allSelected) {
+      const newSet = new Set(selectedForSweep);
+      ids.forEach(id => newSet.delete(id));
+      setSelectedForSweep(newSet);
+    } else {
+      const newSet = new Set(selectedForSweep);
+      ids.forEach(id => newSet.add(id));
+      setSelectedForSweep(newSet);
+    }
   };
 
   const executeBatchSweep = (subjectScope = 'all') => {
@@ -512,10 +523,10 @@ function CommandCenterContent() {
           ) : (
              <button 
                 onClick={() => executeBatchSweep(activeTab)}
-                disabled={isProcessing}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-sm transition-colors flex items-center gap-2"
+                disabled={selectedForSweep.size === 0 || isProcessing}
+                className={`px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-colors flex items-center gap-2 ${selectedForSweep.size === 0 || isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
              >
-                ⚡ Generate {activeTab.replace('-', ' ')}
+                ⚡ Generate {activeTab.replace('-', ' ')} ({selectedForSweep.size})
              </button>
           )}
         </div>
@@ -549,6 +560,7 @@ function CommandCenterContent() {
                 openSkillSettings={openSkillSettings} openPupilDrawer={openPupilDrawer} renderPupilName={renderPupilName} 
                 progress={progress} handleCellCycle={handleCellCycle} handleRightClick={handleRightClick} 
                 sensors={sensors} activeFilter={activeFilter}
+                selectedForSweep={selectedForSweep} toggleSelectPupil={toggleSelectPupil} toggleSelectAll={toggleSelectAll}
               />
             )}
           </div>

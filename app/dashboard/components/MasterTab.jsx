@@ -25,22 +25,25 @@ export default function MasterTab({
         </button>
       </div>
       
-      {blueRoster.length > 0 && (
-        <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-3">
-            <div>
-              <h3 className="font-extrabold text-blue-900 flex items-center gap-2">🔄 Reassessment Roster</h3>
-              <p className="text-xs text-blue-700 font-medium">These topics have reached 0% battery and require a quick verbal check.</p>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={printRoster} className="text-sm font-bold bg-white text-blue-700 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors shadow-sm w-full sm:w-auto">
-                Print Audit
-              </button>
-              <button onClick={executeReassessmentSweep} disabled={isProcessing} className={`text-sm font-bold px-4 py-2 rounded-lg transition-colors shadow-sm w-full sm:w-auto ${isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                Generate Reassessment Pack
-              </button>
-            </div>
+      {/* Permanent Blue Roster */}
+      <div className="mb-6 bg-blue-50 border border-blue-200 rounded-xl p-5 shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-3">
+          <div>
+            <h3 className="font-extrabold text-blue-900 flex items-center gap-2">🔄 Reassessment Roster</h3>
+            <p className="text-xs text-blue-700 font-medium">These topics have reached 0% battery and require a quick verbal check.</p>
           </div>
+          <div className="flex gap-2">
+            <button onClick={printRoster} className="text-sm font-bold bg-white text-blue-700 border border-blue-200 px-4 py-2 rounded-lg hover:bg-blue-100 transition-colors shadow-sm w-full sm:w-auto">
+              Print Audit
+            </button>
+            <button onClick={executeReassessmentSweep} disabled={isProcessing || blueRoster.length === 0} className={`text-sm font-bold px-4 py-2 rounded-lg transition-colors shadow-sm w-full sm:w-auto ${(isProcessing || blueRoster.length === 0) ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+              Generate Reassessment Pack
+            </button>
+          </div>
+        </div>
+        {blueRoster.length === 0 ? (
+           <p className="text-center font-bold text-blue-400 py-4 italic">All topics healthy. No immediate reassessments required.</p>
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {blueRoster.map((item, idx) => (
               <div key={idx} className="bg-white p-3 rounded-lg border border-blue-100 shadow-sm">
@@ -51,9 +54,10 @@ export default function MasterTab({
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
+      {/* Roster Grid */}
       {sortedPupils.length === 0 ? (
         <div className="text-center p-12 border-2 border-dashed border-slate-200 rounded-xl">
           <p className="text-slate-500 font-medium">No pupils in roster.</p>

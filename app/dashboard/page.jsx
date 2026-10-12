@@ -12,6 +12,8 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import MasterTab from './components/MasterTab';
 import SubjectMatrix from './components/SubjectMatrix';
 import PupilDrawer from './components/PupilDrawer';
+import ExecutionModal from './components/ExecutionModal';
+import ExportModal from './components/ExportModal';
 
 const READING_AGES = [
   'Phonics Phase 1', 'Phonics Phase 2', 'Phonics Phase 3', 'Phonics Phase 4',
@@ -20,7 +22,6 @@ const READING_AGES = [
 
 const SUBJECTS = ['maths', 'writing', 'reading', 'spelling', 'times-tables'];
 
-// 1. Renamed from default export to an internal component
 function CommandCenterContent() {
   const { userId } = useAuth();
   const { session } = useSession();
@@ -50,6 +51,7 @@ function CommandCenterContent() {
   }, [session]);
 
   const [activeTab, setActiveTab] = useState('master');
+  const [activeFilter, setActiveFilter] = useState('all');
   const [isMounted, setIsMounted] = useState(false);
   
   const [selectedPupil, setSelectedPupil] = useState(null);
@@ -61,6 +63,9 @@ function CommandCenterContent() {
   
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [memoryModal, setMemoryModal] = useState({ isOpen: false, pupilId: null, skillId: null, notes: '', days: '7' });
+  const [isExecutionModalOpen, setIsExecutionModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
   const [cellError, setCellError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [columnError, setColumnError] = useState(null);
@@ -143,10 +148,20 @@ function CommandCenterContent() {
 
   const calculateTarget = (pupilId, subject) => {
     const subjectSkills = skills.filter(s => s.subject === subject).sort((a, b) => a.order_index - b.order_index);
-    let firstOrange = null;
-    let firstDecayingGreen = null;
     const now = new Date();
 
+    if (activeFilter !== 'all') {
+      const targetCell = subjectSkills.find(skill => {
+        const pData = progress.find(pr => pr.pupil_id === pupilId && pr.skill_id === skill.id);
+        if (!pData) return false;
+        if (activeFilter === 'blue') return pData.status === 'green' && pData.next_review_date && now >= new Date(pData.next_review_date);
+        return pData.status === activeFilter;
+      });
+      return targetCell ? targetCell.id : 'all-clear';
+    }
+
+    let firstOrange = null;
+    let firstDecayingGreen = null;
     for (const skill of subjectSkills) {
       const pData = progress.find(pr => pr.pupil_id === pupilId && pr.skill_id === skill.id);
       if (!pData || pData.status === 'blank') continue; 
@@ -408,14 +423,16 @@ function CommandCenterContent() {
     else setSelectedForSweep(new Set(sortedPupils.map(p => p.id)));
   };
 
-  const executeBatchSweep = () => {
+  const executeBatchSweep = (subjectScope = 'all') => {
     if (selectedForSweep.size === 0 || isProcessing) return;
     
     const batch = Array.from(selectedForSweep).map(pupilId => {
       const pupil = pupils.find(p => p.id === pupilId);
       const mappedTopics = {};
       
-      SUBJECTS.forEach(sub => {
+      const targetSubjects = subjectScope === 'all' ? SUBJECTS : [subjectScope];
+
+      targetSubjects.forEach(sub => {
         const targetId = sweepOverrides[pupilId]?.[sub] || calculateTarget(pupilId, sub);
         if (targetId === 'all-clear') {
           mappedTopics[sub.replace('-', '_')] = 'General mixed revision covering KS2 basics.';
@@ -430,6 +447,7 @@ function CommandCenterContent() {
 
     addBatchToQueue(batch);
     setSelectedForSweep(new Set());
+    setIsExecutionModalOpen(false);
   };
 
   const executeReassessmentSweep = () => {
@@ -458,22 +476,49 @@ function CommandCenterContent() {
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative min-h-0 w-full">
-      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-2 flex flex-col sm:flex-row justify-between sm:items-center shadow-sm z-10 shrink-0 gap-2">
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3 flex flex-col sm:flex-row justify-between sm:items-center shadow-sm z-10 shrink-0 gap-4">
         <div>
           <h1 className="text-lg sm:text-xl font-extrabold text-slate-800 tracking-tight leading-tight">Tactical Command Center</h1>
           <p className="text-xs text-slate-500 font-medium">
             {activeTab === 'master' ? 'Master Staging Area: Ready for Sweep' : `${activeTab.replace('-', ' ').toUpperCase()} Intervention Matrix`}
           </p>
         </div>
-        {activeTab === 'master' && (
-          <button 
-            onClick={executeBatchSweep}
-            disabled={selectedForSweep.size === 0 || isProcessing}
-            className={`px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm transition-all flex justify-center items-center gap-2 ${selectedForSweep.size === 0 || isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+        
+        <div className="flex items-center gap-3">
+          <select 
+            value={activeFilter} 
+            onChange={(e) => setActiveFilter(e.target.value)} 
+            className="text-sm font-bold bg-slate-50 border border-slate-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-indigo-500"
           >
-            🚀 Execute Batch Sweep ({selectedForSweep.size})
+            <option value="all">🔍 Show All Statuses</option>
+            <option value="red">🚨 Filter: Red (Severe)</option>
+            <option value="orange">⚠️ Filter: Orange</option>
+            <option value="green">✅ Filter: Green</option>
+            <option value="blue">🔄 Filter: Blue (Decayed)</option>
+          </select>
+          
+          <button onClick={() => setIsExportModalOpen(true)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 transition-colors">
+            🖨️ Export Data
           </button>
-        )}
+
+          {activeTab === 'master' ? (
+            <button 
+              onClick={() => setIsExecutionModalOpen(true)}
+              disabled={selectedForSweep.size === 0 || isProcessing}
+              className={`px-4 py-2 rounded-lg text-sm font-bold shadow-sm transition-all flex items-center gap-2 ${selectedForSweep.size === 0 || isProcessing ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
+            >
+              🚀 Execute Batch ({selectedForSweep.size})
+            </button>
+          ) : (
+             <button 
+                onClick={() => executeBatchSweep(activeTab)}
+                disabled={isProcessing}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold shadow-sm transition-colors flex items-center gap-2"
+             >
+                ⚡ Generate {activeTab.replace('-', ' ')}
+             </button>
+          )}
+        </div>
       </header>
 
       {cellError && (
@@ -503,7 +548,7 @@ function CommandCenterContent() {
                 sortedPupils={sortedPupils} activeSkills={activeSkills} handleDragEnd={handleDragEnd} 
                 openSkillSettings={openSkillSettings} openPupilDrawer={openPupilDrawer} renderPupilName={renderPupilName} 
                 progress={progress} handleCellCycle={handleCellCycle} handleRightClick={handleRightClick} 
-                sensors={sensors}
+                sensors={sensors} activeFilter={activeFilter}
               />
             )}
           </div>
@@ -542,7 +587,6 @@ function CommandCenterContent() {
         setIsConfirmingDeletePupil={setIsConfirmingDeletePupil} handleDeletePupil={handleDeletePupil} READING_AGES={READING_AGES}
       />
 
-      {/* 1. Memory Override Modal */}
       {memoryModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -578,7 +622,6 @@ function CommandCenterContent() {
         </div>
       )}
 
-      {/* 2. Column Deletion Modal */}
       {skillModal.isOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
@@ -614,7 +657,6 @@ function CommandCenterContent() {
         </div>
       )}
 
-      {/* 3. Add Pupil Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
@@ -681,11 +723,27 @@ function CommandCenterContent() {
           </div>
         </div>
       )}
+
+      <ExecutionModal 
+        isOpen={isExecutionModalOpen} 
+        onClose={() => setIsExecutionModalOpen(false)} 
+        onExecute={executeBatchSweep} 
+        selectedCount={selectedForSweep.size} 
+        SUBJECTS={SUBJECTS} 
+      />
+      <ExportModal 
+        isOpen={isExportModalOpen} 
+        onClose={() => setIsExportModalOpen(false)} 
+        activeFilter={activeFilter} 
+        pupils={pupils} 
+        progress={progress} 
+        skills={skills} 
+        SUBJECTS={SUBJECTS} 
+      />
     </div>
   );
 }
 
-// 2. The new default export that strictly wraps the content in Suspense for Vercel's static builder
 export default function CommandCenterTab() {
   return (
     <Suspense fallback={<div className="flex justify-center items-center h-screen bg-slate-50 text-slate-500 font-bold">Loading Tactical Command Center...</div>}>

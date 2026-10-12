@@ -14,7 +14,7 @@ export default function MasterTab({
             <input 
               type="checkbox" 
               checked={sortedPupils.length > 0 && selectedForSweep.size === sortedPupils.length} 
-              onChange={toggleSelectAll} 
+              onChange={() => toggleSelectAll(sortedPupils)} 
               className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" 
             />
             Select All

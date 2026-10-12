@@ -9,7 +9,7 @@ export default function PupilDrawer({
 }) {
   const [expandedSections, setExpandedSections] = useState({
     reading: true,
-    context: false,
+    context: true,
     mastery: true,
     notes: true
   });
@@ -23,6 +23,8 @@ export default function PupilDrawer({
   // Drawer-specific Voice Engine State
   const [drawerRecognition, setDrawerRecognition] = useState(null);
   const [isDrawerListening, setIsDrawerListening] = useState(false);
+  const [drawerPendingAction, setDrawerPendingAction] = useState(null);
+  const [drawerToast, setDrawerToast] = useState(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('ks2_drawer_prefs');
@@ -46,17 +48,50 @@ export default function PupilDrawer({
         rec.continuous = false;
         rec.interimResults = false;
         rec.lang = 'en-GB';
-
-        rec.onstart = () => setIsDrawerListening(true);
-        rec.onend = () => setIsDrawerListening(false);
-        rec.onresult = (event) => {
-          const transcript = event.results[0][0].transcript;
-          setNewNote(prev => prev ? prev + ' ' + transcript : transcript);
-        };
         setDrawerRecognition(rec);
       }
     }
   }, []);
+
+  // Map the Voice Routing Logic (Using dependencies to avoid stale state)
+  useEffect(() => {
+    if (!drawerRecognition) return;
+
+    drawerRecognition.onstart = () => setIsDrawerListening(true);
+    drawerRecognition.onend = () => setIsDrawerListening(false);
+    
+    drawerRecognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      
+      const action = async () => {
+        const { data, error } = await supabase.from('pupil_notes').insert([{
+          user_id: userId,
+          pupil_id: selectedPupil.id,
+          content: `🗣️ Dictated: ${transcript}`,
+          category: noteCategory
+        }]).select();
+
+        if (data && !error) {
+          setNotes(prev => [data[0], ...prev]);
+        }
+      };
+      
+      setDrawerPendingAction({ action, message: `📝 Queuing dictated ${noteCategory} note...` });
+    };
+  }, [drawerRecognition, noteCategory, selectedPupil, supabase, userId]);
+
+  // The 3-Second Holding Queue Timer
+  useEffect(() => {
+    if (drawerPendingAction) {
+      const timer = setTimeout(() => {
+        drawerPendingAction.action();
+        setDrawerPendingAction(null);
+        setDrawerToast("✅ Dictated note saved.");
+        setTimeout(() => setDrawerToast(null), 2500);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [drawerPendingAction]);
 
   const toggleDrawerDictation = (e) => {
     e.preventDefault();
@@ -110,7 +145,6 @@ export default function PupilDrawer({
 
   const handleUpdateCategory = async (noteId, newCategory) => {
     if (!supabase) return;
-    // Optimistic UI Update for instant feedback
     setNotes(prev => prev.map(n => n.id === noteId ? { ...n, category: newCategory } : n));
     await supabase.from('pupil_notes').update({ category: newCategory }).eq('id', noteId);
   };
@@ -169,7 +203,6 @@ export default function PupilDrawer({
     <div className={`fixed inset-0 z-50 transition-opacity duration-300 ${isDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeDrawer}></div>
       
-      {/* Drawer width is now 75vw for maximum workspace */}
       <div className={`absolute top-0 right-0 h-full w-[75vw] max-w-none bg-slate-50 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         
         <div className="bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center shadow-sm z-10 shrink-0">
@@ -184,7 +217,8 @@ export default function PupilDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+        {/* 1. UPGRADED TO MULTI-COLUMN GRID */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start content-start">
           
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
             <button onClick={() => toggleSection('reading')} className="w-full px-5 py-3.5 bg-indigo-50/50 hover:bg-indigo-50 flex justify-between items-center transition-colors">
@@ -316,17 +350,16 @@ export default function PupilDrawer({
                     <textarea 
                       value={newNote} 
                       onChange={(e) => setNewNote(e.target.value)} 
-                      placeholder="Type or dictate a new observation..." 
+                      placeholder="Type a note, or click the mic to dictate instantly..." 
                       className="w-full p-3 pr-14 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 resize-none bg-white"
                       rows="2"
                     ></textarea>
                     
-                    {/* Inline Dictation Button */}
                     <button 
                       type="button"
                       onClick={toggleDrawerDictation}
                       className={`absolute bottom-3 right-3 flex items-center justify-center w-8 h-8 rounded border transition-all ${isDrawerListening ? 'bg-red-500 text-white border-red-600 animate-pulse' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'}`}
-                      title="Dictate Note"
+                      title="Dictate Note (Auto-Saves)"
                     >
                       🎙️
                     </button>
@@ -341,7 +374,7 @@ export default function PupilDrawer({
                       <option value="SEND / Intervention">SEND / Intervention</option>
                     </select>
                     <button type="submit" disabled={isSavingNote || !newNote.trim()} className="bg-sky-600 hover:bg-sky-700 disabled:bg-sky-300 text-white px-5 py-2.5 rounded-lg text-xs font-bold transition-colors shadow-sm">
-                      {isSavingNote ? 'Saving...' : 'Save Note'}
+                      {isSavingNote ? 'Saving...' : 'Save Typed Note'}
                     </button>
                   </div>
                 </form>
@@ -365,7 +398,6 @@ export default function PupilDrawer({
                       <div key={note.id} className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm relative group hover:border-sky-200 transition-colors">
                         <div className="flex justify-between items-start mb-2 gap-2">
                           
-                          {/* Re-categorize Dropdown */}
                           <select 
                             value={note.category}
                             onChange={(e) => handleUpdateCategory(note.id, e.target.value)}
@@ -396,8 +428,22 @@ export default function PupilDrawer({
             )}
           </div>
           
-          <div className="pt-2"></div>
         </div>
+
+        {/* 2. THE 3-SECOND DRAWER TOAST HOLDING QUEUE */}
+        {(drawerPendingAction || drawerToast) && (
+          <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-full shadow-2xl flex items-center gap-4 z-50 transition-all border border-slate-700">
+            <span className="font-bold text-sm">{drawerPendingAction ? drawerPendingAction.message : drawerToast}</span>
+            {drawerPendingAction && (
+              <button 
+                onClick={() => { setDrawerPendingAction(null); setDrawerToast("🚫 Note cancelled."); setTimeout(() => setDrawerToast(null), 2500); }}
+                className="bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-wider transition-colors shadow-sm"
+              >
+                Undo
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="px-6 py-4 border-t border-slate-200 bg-white shrink-0">
           {!isConfirmingDeletePupil ? (

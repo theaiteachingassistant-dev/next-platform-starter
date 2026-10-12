@@ -38,8 +38,9 @@ export default function SubjectMatrix({
   activeTab, handleAddSkill, newSkillName, setNewSkillName, isAddingSkill, activeFilter,
   columnError, sortedPupils, activeSkills, handleDragEnd, openSkillSettings,
   openPupilDrawer, renderPupilName, progress, handleCellCycle, handleRightClick, sensors
-
-  // Add this inside the component to filter the grid
+}) {
+  
+  // The filter logic now safely lives inside the function body
   const filteredPupils = sortedPupils.filter(pupil => {
     if (activeFilter === 'all') return true;
     const hasMatch = activeSkills.some(skill => {
@@ -50,7 +51,7 @@ export default function SubjectMatrix({
     });
     return hasMatch;
   });
-}) {
+
   return (
     <div className="h-full flex flex-col flex-1 min-h-0">
       <div className="flex flex-col sm:flex-row justify-between items-start mb-6 gap-4 shrink-0">

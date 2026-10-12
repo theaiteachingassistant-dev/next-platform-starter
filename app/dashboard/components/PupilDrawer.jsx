@@ -20,6 +20,10 @@ export default function PupilDrawer({
   const [noteSearch, setNoteSearch] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
 
+  // Drawer-specific Voice Engine State
+  const [drawerRecognition, setDrawerRecognition] = useState(null);
+  const [isDrawerListening, setIsDrawerListening] = useState(false);
+
   useEffect(() => {
     const saved = localStorage.getItem('ks2_drawer_prefs');
     if (saved) {
@@ -32,6 +36,36 @@ export default function PupilDrawer({
       fetchNotes();
     }
   }, [selectedPupil, supabase]);
+
+  // Initialize Local Dictation Engine
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRec) {
+        const rec = new SpeechRec();
+        rec.continuous = false;
+        rec.interimResults = false;
+        rec.lang = 'en-GB';
+
+        rec.onstart = () => setIsDrawerListening(true);
+        rec.onend = () => setIsDrawerListening(false);
+        rec.onresult = (event) => {
+          const transcript = event.results[0][0].transcript;
+          setNewNote(prev => prev ? prev + ' ' + transcript : transcript);
+        };
+        setDrawerRecognition(rec);
+      }
+    }
+  }, []);
+
+  const toggleDrawerDictation = (e) => {
+    e.preventDefault();
+    if (!drawerRecognition) {
+      alert("Voice dictation is not supported in this browser. Please use Chrome.");
+      return;
+    }
+    isDrawerListening ? drawerRecognition.stop() : drawerRecognition.start();
+  };
 
   const toggleSection = (section) => {
     const newState = { ...expandedSections, [section]: !expandedSections[section] };
@@ -72,6 +106,13 @@ export default function PupilDrawer({
     if (!supabase) return;
     await supabase.from('pupil_notes').delete().eq('id', noteId);
     setNotes(notes.filter(n => n.id !== noteId));
+  };
+
+  const handleUpdateCategory = async (noteId, newCategory) => {
+    if (!supabase) return;
+    // Optimistic UI Update for instant feedback
+    setNotes(prev => prev.map(n => n.id === noteId ? { ...n, category: newCategory } : n));
+    await supabase.from('pupil_notes').update({ category: newCategory }).eq('id', noteId);
   };
 
   const filteredNotes = notes.filter(n => 
@@ -126,10 +167,10 @@ export default function PupilDrawer({
 
   return (
     <div className={`fixed inset-0 z-50 transition-opacity duration-300 ${isDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={closeDrawer}></div>
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeDrawer}></div>
       
-      {/* 1. Updated width: max-w-2xl makes it cover half the screen cleanly */}
-      <div className={`absolute top-0 right-0 h-full w-full max-w-2xl bg-slate-50 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      {/* Drawer width is now 75vw for maximum workspace */}
+      <div className={`absolute top-0 right-0 h-full w-[75vw] max-w-none bg-slate-50 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         
         <div className="bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center shadow-sm z-10 shrink-0">
           <div>
@@ -252,7 +293,6 @@ export default function PupilDrawer({
                   </div>
                 ) : (
                   <div className="max-h-64 overflow-y-auto pr-1">
-                    {/* 2. New Subject-Level Breakdown */}
                     {renderSubjectBars()}
                     {drawerStats.pProg.length === 0 && <p className="text-center text-xs text-slate-400 font-bold py-4">No topics assessed yet.</p>}
                   </div>
@@ -261,7 +301,6 @@ export default function PupilDrawer({
             )}
           </div>
 
-          {/* 3. New Observation Notes Section */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
             <button onClick={() => toggleSection('notes')} className="w-full px-5 py-3.5 bg-sky-50/50 hover:bg-sky-50 flex justify-between items-center transition-colors">
               <div className="flex items-center gap-2 font-extrabold text-sky-900">
@@ -273,13 +312,26 @@ export default function PupilDrawer({
               <div className="p-5 border-t border-sky-100 bg-white flex flex-col gap-4">
                 
                 <form onSubmit={handleAddNote} className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-200 shadow-inner">
-                  <textarea 
-                    value={newNote} 
-                    onChange={(e) => setNewNote(e.target.value)} 
-                    placeholder="Type or dictate a new observation..." 
-                    className="w-full p-3 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 resize-none"
-                    rows="2"
-                  ></textarea>
+                  <div className="relative">
+                    <textarea 
+                      value={newNote} 
+                      onChange={(e) => setNewNote(e.target.value)} 
+                      placeholder="Type or dictate a new observation..." 
+                      className="w-full p-3 pr-14 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-sky-500 resize-none bg-white"
+                      rows="2"
+                    ></textarea>
+                    
+                    {/* Inline Dictation Button */}
+                    <button 
+                      type="button"
+                      onClick={toggleDrawerDictation}
+                      className={`absolute bottom-3 right-3 flex items-center justify-center w-8 h-8 rounded border transition-all ${isDrawerListening ? 'bg-red-500 text-white border-red-600 animate-pulse' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-300'}`}
+                      title="Dictate Note"
+                    >
+                      🎙️
+                    </button>
+                  </div>
+                  
                   <div className="flex justify-between items-center gap-2">
                     <select value={noteCategory} onChange={(e) => setNoteCategory(e.target.value)} className="p-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-700 focus:ring-2 focus:ring-sky-500 bg-white">
                       <option value="General">General</option>
@@ -311,10 +363,21 @@ export default function PupilDrawer({
                   ) : (
                     filteredNotes.map(note => (
                       <div key={note.id} className="bg-white border border-slate-200 rounded-lg p-3 shadow-sm relative group hover:border-sky-200 transition-colors">
-                        <div className="flex justify-between items-start mb-2">
-                          <span className="text-[10px] font-black uppercase tracking-wider text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-100">
-                            {note.category}
-                          </span>
+                        <div className="flex justify-between items-start mb-2 gap-2">
+                          
+                          {/* Re-categorize Dropdown */}
+                          <select 
+                            value={note.category}
+                            onChange={(e) => handleUpdateCategory(note.id, e.target.value)}
+                            className="text-[10px] font-black uppercase tracking-wider text-sky-700 bg-sky-50 px-2 py-0.5 rounded border border-sky-200 cursor-pointer hover:bg-sky-100 focus:ring-2 focus:ring-sky-500 outline-none transition-colors"
+                          >
+                            <option value="General">General</option>
+                            <option value="Academic">Academic</option>
+                            <option value="Behavior">Behavior</option>
+                            <option value="Parent Contact">Parent Contact</option>
+                            <option value="SEND / Intervention">SEND / Intervention</option>
+                          </select>
+
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] font-bold text-slate-400">
                               {new Date(note.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}

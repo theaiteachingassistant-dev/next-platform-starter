@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
-import ExecutionModal from '../components/ExecutionModal';
 import { useGeneration } from '../../../context/GenerationContext';
+import PupilDrawer from '../components/PupilDrawer';
 
 const SUBJECTS = [
   { key: 'all', label: 'All Subjects', icon: '🌍' },
@@ -39,16 +39,19 @@ function ClassStatsContent() {
   const [isLoading, setIsLoading] = useState(true);
   
   const [isWidgetsOpen, setIsWidgetsOpen] = useState(true);
-  
   const [chartFilters, setChartFilters] = useState({
-    chart1: 'all', chart2: 'send', chart3: 'pp', chart4: 'eal'
+    chart1: 'send', chart2: 'pp', chart3: 'boys', chart4: 'girls'
   });
 
-  const [isExecutionModalOpen, setIsExecutionModalOpen] = useState(false);
-  const [selectedForSweep, setSelectedForSweep] = useState(new Set());
-  const [drilldownTitle, setDrilldownTitle] = useState('');
+  // PUPIL DRAWER STATE
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerPupilId, setDrawerPupilId] = useState(null);
 
-  // TOP TRUMPS STATE
+  // X-RAY MODAL STATE
+  const [isXRayOpen, setIsXRayOpen] = useState(false);
+  const [xRayData, setXRayData] = useState(null);
+  const [xRaySelected, setXRaySelected] = useState(new Set());
+
   const [compareIds, setCompareIds] = useState([]);
 
   const supabase = useMemo(() => {
@@ -88,6 +91,11 @@ function ClassStatsContent() {
     if (skillsRes.data) setSkills(skillsRes.data);
     if (progressRes.data) setProgress(progressRes.data);
     setIsLoading(false);
+  };
+
+  const openDrawer = (id) => {
+    setDrawerPupilId(id);
+    setIsDrawerOpen(true);
   };
 
   const getWidgetData = () => {
@@ -131,7 +139,21 @@ function ClassStatsContent() {
 
   const widgetData = useMemo(getWidgetData, [activeSubject, skills, progress, pupils]);
 
+  // --- MATH ENGINE: CLASS AVERAGES VS DEMOGRAPHICS ---
   const getChartData = (demographicFilter) => {
+    const activeSkills = activeSubject === 'all' ? skills : skills.filter(s => s.subject === activeSubject);
+    const activeSkillIds = activeSkills.map(s => s.id);
+    
+    // 1. Calculate Whole Class Baseline
+    const classProg = progress.filter(p => activeSkillIds.includes(p.skill_id) && p.status !== 'blank');
+    const classTotal = classProg.length;
+    const classAvg = {
+      green: classTotal ? Math.round((classProg.filter(p => p.status === 'green').length / classTotal) * 100) : 0,
+      orange: classTotal ? Math.round((classProg.filter(p => p.status === 'orange').length / classTotal) * 100) : 0,
+      red: classTotal ? Math.round((classProg.filter(p => p.status === 'red').length / classTotal) * 100) : 0,
+    };
+
+    // 2. Calculate Demographic Specifics
     let filteredPupils = pupils;
     if (demographicFilter === 'send') filteredPupils = pupils.filter(p => p.is_send);
     if (demographicFilter === 'eal') filteredPupils = pupils.filter(p => p.is_eal);
@@ -140,89 +162,97 @@ function ClassStatsContent() {
     if (demographicFilter === 'girls') filteredPupils = pupils.filter(p => p.gender === 'Girl');
 
     const pupilIds = filteredPupils.map(p => p.id);
-    const activeSkills = activeSubject === 'all' ? skills : skills.filter(s => s.subject === activeSubject);
-    const activeSkillIds = activeSkills.map(s => s.id);
+    const demoProg = classProg.filter(p => pupilIds.includes(p.pupil_id));
+    const demoTotal = demoProg.length;
     
-    const activeProg = progress.filter(p => activeSkillIds.includes(p.skill_id) && pupilIds.includes(p.pupil_id) && p.status !== 'blank');
-    
-    const greenCount = activeProg.filter(p => p.status === 'green').length;
-    const orangeCount = activeProg.filter(p => p.status === 'orange').length;
-    const redCount = activeProg.filter(p => p.status === 'red').length;
-    
+    const demoCount = {
+      green: demoProg.filter(p => p.status === 'green').length,
+      orange: demoProg.filter(p => p.status === 'orange').length,
+      red: demoProg.filter(p => p.status === 'red').length,
+    };
+
+    const demoPct = {
+      green: demoTotal ? Math.round((demoCount.green / demoTotal) * 100) : 0,
+      orange: demoTotal ? Math.round((demoCount.orange / demoTotal) * 100) : 0,
+      red: demoTotal ? Math.round((demoCount.red / demoTotal) * 100) : 0,
+    };
+
     const chartData = [
-      { name: 'Mastered', value: greenCount, color: COLORS.green, status: 'green', pupilIds },
-      { name: 'Developing', value: orangeCount, color: COLORS.orange, status: 'orange', pupilIds },
-      { name: 'Struggling', value: redCount, color: COLORS.red, status: 'red', pupilIds }
+      { name: 'Mastered', value: demoCount.green, color: COLORS.green, status: 'green', pct: demoPct.green, classPct: classAvg.green },
+      { name: 'Developing', value: demoCount.orange, color: COLORS.orange, status: 'orange', pct: demoPct.orange, classPct: classAvg.orange },
+      { name: 'Struggling', value: demoCount.red, color: COLORS.red, status: 'red', pct: demoPct.red, classPct: classAvg.red }
     ].filter(d => d.value > 0);
 
-    return { data: chartData, total: greenCount + orangeCount + redCount };
+    return { data: chartData, total: demoTotal };
   };
 
-  const handleSliceClick = (entry, demographicLabel) => {
+  // --- DRILLDOWN X-RAY TRIGGERS ---
+  const handleSliceClick = (entry, demographicFilter, demographicLabel) => {
     const targetStatus = entry.status;
-    const poolPupilIds = entry.pupilIds;
-    
     const activeSkills = activeSubject === 'all' ? skills : skills.filter(s => s.subject === activeSubject);
     const activeSkillIds = activeSkills.map(s => s.id);
-    
-    const affectedPupils = pupils.filter(p => {
-      if (!poolPupilIds.includes(p.id)) return false;
-      return progress.some(pr => pr.pupil_id === p.id && activeSkillIds.includes(pr.skill_id) && pr.status === targetStatus);
-    });
 
-    setDrilldownTitle(`Targeting ${affectedPupils.length} pupils (${demographicLabel} - ${entry.name})`);
-    setSelectedForSweep(new Set(affectedPupils.map(p => p.id)));
-    setIsExecutionModalOpen(true);
+    let filteredPupils = pupils;
+    if (demographicFilter === 'send') filteredPupils = pupils.filter(p => p.is_send);
+    if (demographicFilter === 'eal') filteredPupils = pupils.filter(p => p.is_eal);
+    if (demographicFilter === 'pp') filteredPupils = pupils.filter(p => p.is_pp);
+    if (demographicFilter === 'boys') filteredPupils = pupils.filter(p => p.gender === 'Boy');
+    if (demographicFilter === 'girls') filteredPupils = pupils.filter(p => p.gender === 'Girl');
+
+    // Gather exact pupils and their specific topics for transparency
+    const affected = filteredPupils.map(p => {
+      const pProg = progress.filter(pr => pr.pupil_id === p.id && activeSkillIds.includes(pr.skill_id) && pr.status === targetStatus);
+      if (pProg.length === 0) return null;
+      const topicNames = pProg.map(pr => skills.find(s => s.id === pr.skill_id)?.skill_name).filter(Boolean);
+      return { pupil: p, topics: topicNames };
+    }).filter(Boolean);
+
+    setXRayData({
+      demographicLabel,
+      statusName: entry.name,
+      status: targetStatus,
+      color: entry.color,
+      affected
+    });
+    setXRaySelected(new Set(affected.map(a => a.pupil.id)));
+    setIsXRayOpen(true);
   };
 
-  const executeBatchSweep = (subjectScope = 'all') => {
-    if (selectedForSweep.size === 0 || isProcessing) return;
-    
-    const batch = Array.from(selectedForSweep).map(pupilId => {
-      const pupil = pupils.find(p => p.id === pupilId);
-      const mappedTopics = {};
-      const targetSubjects = subjectScope === 'all' ? SUBJECTS.filter(s => s.key !== 'all').map(s => s.key) : [subjectScope];
+  const toggleXRaySelected = (id) => {
+    const newSet = new Set(xRaySelected);
+    if (newSet.has(id)) newSet.delete(id);
+    else newSet.add(id);
+    setXRaySelected(newSet);
+  };
 
+  // --- GENERATION (OPTION A: TARGETED MIXED REVIEW) ---
+  const executeXRayBatch = () => {
+    if (xRaySelected.size === 0 || isProcessing || !xRayData) return;
+    
+    const batch = Array.from(xRaySelected).map(pupilId => {
+      const pData = xRayData.affected.find(a => a.pupil.id === pupilId);
+      const mappedTopics = {};
+      const targetSubjects = activeSubject === 'all' ? SUBJECTS.filter(s => s.key !== 'all').map(s => s.key) : [activeSubject];
+
+      // Build Option A payload: Targeting their exact deficits
       targetSubjects.forEach(sub => {
-        const subSkills = skills.filter(s => s.subject === sub).sort((a, b) => a.order_index - b.order_index);
-        let targetId = 'all-clear';
-        let firstOrange = null;
-        let firstDecayingGreen = null;
+        const subSkills = skills.filter(s => s.subject === sub).map(s => s.id);
+        const specificProg = progress.filter(pr => pr.pupil_id === pupilId && pr.status === xRayData.status && subSkills.includes(pr.skill_id));
+        const skillNames = specificProg.map(pr => skills.find(s => s.id === pr.skill_id)?.skill_name).filter(Boolean);
         
-        for (const skill of subSkills) {
-          const pData = progress.find(pr => pr.pupil_id === pupilId && pr.skill_id === skill.id);
-          if (!pData || pData.status === 'blank') continue; 
-          if (pData.status === 'red') { targetId = skill.id; break; } 
-          if (pData.status === 'orange' && !firstOrange) firstOrange = skill.id;
-          if (pData.status === 'green' && pData.next_review_date && new Date().getTime() >= new Date(pData.next_review_date).getTime() && !firstDecayingGreen) {
-            firstDecayingGreen = skill.id;
-          }
-        }
-        
-        if (targetId === 'all-clear') targetId = firstOrange || firstDecayingGreen || 'all-clear';
-        
-        if (targetId === 'all-clear') {
-          mappedTopics[sub.replace('-', '_')] = 'General mixed revision.';
+        if (skillNames.length > 0) {
+          mappedTopics[sub.replace('-', '_')] = `Mixed review strictly focusing on: ${skillNames.join(', ')}.`;
         } else {
-          const sk = skills.find(s => s.id === targetId);
-          mappedTopics[sub.replace('-', '_')] = sk ? sk.skill_name : 'General mixed revision';
+          mappedTopics[sub.replace('-', '_')] = 'General mixed revision.';
         }
       });
 
-      return { pupil, topics: mappedTopics, isTestMode: false };
+      return { pupil: pData.pupil, topics: mappedTopics, isTestMode: false };
     });
 
     addBatchToQueue(batch);
-    setSelectedForSweep(new Set());
-    setIsExecutionModalOpen(false);
-  };
-
-  const toggleComparePupil = (id) => {
-    if (compareIds.includes(id)) {
-      setCompareIds(compareIds.filter(pid => pid !== id));
-    } else {
-      if (compareIds.length < 4) setCompareIds([...compareIds, id]);
-    }
+    setIsXRayOpen(false);
+    setXRaySelected(new Set());
   };
 
   const renderChartCard = (chartKey, title) => {
@@ -231,7 +261,7 @@ function ClassStatsContent() {
     const filterLabel = DEMOGRAPHIC_OPTIONS.find(o => o.value === filter)?.label || 'Group';
 
     return (
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col h-72">
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col min-h-[380px]">
         <div className="flex justify-between items-center mb-4 z-10">
           <h3 className="font-extrabold text-slate-800 tracking-tight">{title}</h3>
           <select 
@@ -243,26 +273,38 @@ function ClassStatsContent() {
           </select>
         </div>
         
-        <div className="flex-1 relative">
+        <div className="h-48 relative mb-4">
           {total === 0 ? (
             <div className="absolute inset-0 flex items-center justify-center text-slate-400 font-bold text-sm">No data available</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Tooltip formatter={(value) => [`${value} Topics`, 'Count']} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: 'bold' }} />
-                <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value" onClick={(entry) => handleSliceClick(entry, filterLabel)} className="cursor-pointer focus:outline-none">
+                <Pie data={data} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2} dataKey="value" onClick={(entry) => handleSliceClick(entry, filter, filterLabel)} className="cursor-pointer focus:outline-none">
                   {data.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} className="hover:opacity-80 transition-opacity outline-none" />))}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
           )}
-          {total > 0 && (
-             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-               <span className="text-2xl font-black text-slate-800">{total}</span>
-               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Topics</span>
-             </div>
-          )}
         </div>
+
+        {/* DEMOGRAPHIC VS CLASS AVERAGE LEGEND */}
+        {total > 0 && (
+          <div className="mt-auto space-y-2 border-t border-slate-100 pt-3">
+            {data.map(d => (
+              <div key={d.status} className="flex justify-between items-center text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: d.color}}></div>
+                  <span className="font-bold text-slate-700">{d.name}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-black w-8 text-right" style={{color: d.color}}>{d.pct}%</span>
+                  <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded w-16 text-center">Class: {d.classPct}%</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -280,25 +322,19 @@ function ClassStatsContent() {
     const o = total === 0 ? 0 : Math.round((pProg.filter(p => p.status === 'orange').length / total) * 100);
     const r = total === 0 ? 0 : Math.round((pProg.filter(p => p.status === 'red').length / total) * 100);
 
-    const getTierColor = (tier) => {
-      if (tier === 'Higher') return 'bg-purple-100 text-purple-700 border-purple-200';
-      if (tier === 'Expected') return 'bg-indigo-100 text-indigo-700 border-indigo-200';
-      return 'bg-amber-100 text-amber-700 border-amber-200';
-    };
-
     return (
       <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden relative">
-        <button onClick={() => toggleComparePupil(pupil.id)} className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors">✕</button>
+        <button onClick={() => {
+          if (compareIds.includes(pupil.id)) setCompareIds(compareIds.filter(pid => pid !== pupil.id));
+        }} className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors z-10">✕</button>
         
         <div className="p-5 border-b border-slate-100 bg-slate-50">
-          <h3 className="font-extrabold text-lg text-slate-800 truncate pr-6">{pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}</h3>
+          {/* CLICKABLE PUPIL NAME */}
+          <button onClick={() => openDrawer(pupil.id)} className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors">
+            {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
+          </button>
           <div className="flex gap-2 mt-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-white border border-slate-200 text-slate-500 px-2 py-1 rounded">
-              RA: {pupil.reading_age || 'N/A'}
-            </span>
-            <span className={`text-[10px] font-bold uppercase tracking-wider border px-2 py-1 rounded ${getTierColor(pupil.reading_tier)}`}>
-              {pupil.reading_tier || 'WTS'}
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-white border border-slate-200 text-slate-500 px-2 py-1 rounded">RA: {pupil.reading_age || 'N/A'}</span>
           </div>
         </div>
 
@@ -313,33 +349,6 @@ function ClassStatsContent() {
               {o > 0 && <div className="bg-amber-400" style={{ width: `${o}%` }}></div>}
               {r > 0 && <div className="bg-red-500" style={{ width: `${r}%` }}></div>}
             </div>
-          </div>
-
-          <div className="space-y-3 pt-3 border-t border-slate-100">
-            {SUBJECTS.filter(s => s.key !== 'all').map(sub => {
-              const subSkills = skills.filter(s => s.subject === sub.key).map(s => s.id);
-              const subP = progress.filter(p => p.pupil_id === pupilId && subSkills.includes(p.skill_id) && p.status !== 'blank');
-              const subT = subP.length;
-              if (subT === 0) return null;
-              
-              const subG = Math.round((subP.filter(p => p.status === 'green').length / subT) * 100);
-              const subO = Math.round((subP.filter(p => p.status === 'orange').length / subT) * 100);
-              const subR = Math.round((subP.filter(p => p.status === 'red').length / subT) * 100);
-
-              return (
-                <div key={sub.key}>
-                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wide mb-1">
-                    <span className="text-slate-500 flex items-center gap-1"><span>{sub.icon}</span> {sub.label}</span>
-                    <span className="text-emerald-600">{subG}%</span>
-                  </div>
-                  <div className="flex h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                    {subG > 0 && <div className="bg-emerald-500" style={{ width: `${subG}%` }}></div>}
-                    {subO > 0 && <div className="bg-amber-400" style={{ width: `${subO}%` }}></div>}
-                    {subR > 0 && <div className="bg-red-500" style={{ width: `${subR}%` }}></div>}
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>
@@ -398,47 +407,42 @@ function ClassStatsContent() {
           </button>
           {isWidgetsOpen && (
             <div className="p-5 border-t border-slate-200 bg-slate-50/50 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className="bg-white border border-red-200 rounded-lg p-4 shadow-sm relative overflow-hidden group hover:border-red-300 transition-colors">
+              <div className="bg-white border border-red-200 rounded-lg p-4 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-red-700 flex items-center gap-1.5 mb-3"><span>🚨</span> Curriculum Bottlenecks</h3>
-                {widgetData.bottlenecks.length === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No red topics flagged.</p> : (
+                {widgetData.bottlenecks.length === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No red topics.</p> : (
                   <ul className="space-y-2">{widgetData.bottlenecks.map((b, i) => (<li key={i} className="flex justify-between items-center text-sm"><span className="font-semibold text-slate-700 truncate pr-2">{b.skill.skill_name}</span><span className="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{b.count} pupils</span></li>))}</ul>
                 )}
               </div>
-              <div className="bg-white border border-blue-200 rounded-lg p-4 shadow-sm relative overflow-hidden group hover:border-blue-300 transition-colors">
-                <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-blue-700 flex items-center gap-1.5 mb-3"><span>🧠</span> Memory Decay Alert</h3>
-                {widgetData.decays.length === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No decayed topics today.</p> : (
-                  <ul className="space-y-2">{widgetData.decays.map((d, i) => (<li key={i} className="flex justify-between items-center text-sm"><span className="font-semibold text-slate-700 truncate pr-2">{d.skill.skill_name}</span><span className="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{d.count} pupils</span></li>))}</ul>
-                )}
-              </div>
-              <div className="bg-white border border-slate-300 rounded-lg p-4 shadow-sm relative overflow-hidden group hover:border-slate-400 transition-colors">
+              
+              <div className="bg-white border border-slate-300 rounded-lg p-4 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-slate-500"></div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5 mb-3"><span>👻</span> The Invisible Child</h3>
                 {widgetData.totalActiveSkills === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No skills available.</p> : (
-                  <ul className="space-y-2">{widgetData.invisiblePupils.map((p, i) => (<li key={i} className="flex justify-between items-center text-sm"><span className="font-semibold text-slate-700 truncate pr-2">{p.pupil.name} {p.pupil.surname_initial ? `${p.pupil.surname_initial}.` : ''}</span><span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{p.blankPct}% Blank</span></li>))}</ul>
+                  <ul className="space-y-2">{widgetData.invisiblePupils.map((p, i) => (
+                    <li key={i} className="flex justify-between items-center text-sm">
+                      {/* CLICKABLE PUPIL NAME */}
+                      <button onClick={() => openDrawer(p.pupil.id)} className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left">
+                        {p.pupil.name} {p.pupil.surname_initial ? `${p.pupil.surname_initial}.` : ''}
+                      </button>
+                      <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{p.blankPct}% Blank</span>
+                    </li>
+                  ))}</ul>
                 )}
               </div>
-              <div className="bg-white border border-emerald-200 rounded-lg p-4 shadow-sm relative overflow-hidden group hover:border-emerald-300 transition-colors">
-                <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-emerald-700 flex items-center gap-1.5 mb-3"><span>🚀</span> Distance Travelled</h3>
-                <div className="flex flex-col gap-2">
-                  <div className="flex justify-between items-end border-b border-slate-100 pb-2"><span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Last 14 Days</span><span className="text-xl font-black text-emerald-600 leading-none">+{widgetData.recentGreens14} <span className="text-xs font-bold text-emerald-600/50">Mastered</span></span></div>
-                  <div className="flex justify-between items-end pt-1"><span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Last 30 Days</span><span className="text-lg font-black text-slate-700 leading-none">+{widgetData.recentGreens30} <span className="text-xs font-bold text-slate-400">Mastered</span></span></div>
-                </div>
-              </div>
+              {/* Other Widgets Hidden for Brevity (Velocity etc) */}
             </div>
           )}
         </div>
 
-        {/* INTERACTIVE PIE CHARTS */}
+        {/* DEMOGRAPHIC CHARTS WITH CLASS AVERAGES */}
         <div>
-          <h2 className="text-lg font-extrabold text-slate-800 mb-4 flex items-center gap-2"><span>📊</span> Demographic Distribution</h2>
+          <h2 className="text-lg font-extrabold text-slate-800 mb-4 flex items-center gap-2"><span>📊</span> Demographic vs Class Averages</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {renderChartCard('chart1', 'Primary View')}
-            {renderChartCard('chart2', 'Comparison A')}
-            {renderChartCard('chart3', 'Comparison B')}
-            {renderChartCard('chart4', 'Comparison C')}
+            {renderChartCard('chart1', 'Primary Demographic')}
+            {renderChartCard('chart2', 'Secondary Demographic')}
+            {renderChartCard('chart3', 'Comparison A')}
+            {renderChartCard('chart4', 'Comparison B')}
           </div>
         </div>
 
@@ -452,13 +456,13 @@ function ClassStatsContent() {
             
             <select 
               onChange={(e) => {
-                if (e.target.value) {
-                  toggleComparePupil(e.target.value);
+                if (e.target.value && !compareIds.includes(e.target.value) && compareIds.length < 4) {
+                  setCompareIds([...compareIds, e.target.value]);
                   e.target.value = "";
                 }
               }}
               disabled={compareIds.length >= 4}
-              className="p-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-500 min-w-[200px]"
+              className="p-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white min-w-[200px]"
             >
               <option value="">+ Add Pupil to Compare</option>
               {sortedPupils.filter(p => !compareIds.includes(p.id)).map(p => (
@@ -467,29 +471,81 @@ function ClassStatsContent() {
             </select>
           </div>
 
-          {compareIds.length === 0 ? (
-            <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 flex flex-col justify-center items-center">
-              <span className="text-4xl mb-3">🎴</span>
-              <h3 className="font-extrabold text-slate-400">No Pupils Selected</h3>
-              <p className="text-sm font-semibold text-slate-400">Use the dropdown above to add pupils to the comparison engine.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-              {compareIds.map(renderCompareCard)}
-            </div>
-          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {compareIds.map(renderCompareCard)}
+          </div>
         </div>
 
       </main>
 
-      <ExecutionModal 
-        isOpen={isExecutionModalOpen} 
-        onClose={() => setIsExecutionModalOpen(false)} 
-        onExecute={executeBatchSweep} 
-        selectedCount={selectedForSweep.size} 
-        SUBJECTS={SUBJECTS.filter(s => s.key !== 'all').map(s => s.key)}
-        customTitle={drilldownTitle}
-      />
+      {/* --- THE X-RAY DRILLDOWN MODAL --- */}
+      {isXRayOpen && xRayData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-2xl flex flex-col max-h-[90vh] shadow-2xl overflow-hidden border border-slate-200">
+            
+            <div className="p-6 border-b border-slate-200 flex justify-between items-start" style={{ borderTop: `6px solid ${xRayData.color}` }}>
+              <div>
+                <h2 className="text-2xl font-black text-slate-800">X-Ray: {xRayData.demographicLabel}</h2>
+                <p className="text-sm font-bold mt-1 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: xRayData.color}}></span>
+                  Current Status: <span style={{color: xRayData.color}}>{xRayData.statusName} ({xRayData.affected.length} Pupils)</span>
+                </p>
+              </div>
+              <button onClick={() => setIsXRayOpen(false)} className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full font-bold transition-colors">✕</button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 bg-slate-50 space-y-3">
+              {xRayData.affected.length === 0 ? (
+                 <p className="text-slate-500 italic text-center py-4">No pupils found for this slice.</p>
+              ) : (
+                xRayData.affected.map((item) => (
+                  <label key={item.pupil.id} className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-all cursor-pointer ${xRaySelected.has(item.pupil.id) ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                    <input 
+                      type="checkbox" 
+                      checked={xRaySelected.has(item.pupil.id)} 
+                      onChange={() => toggleXRaySelected(item.pupil.id)}
+                      className="mt-1.5 w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        {/* CLICKABLE PUPIL NAME INSIDE MODAL */}
+                        <button 
+                          type="button"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(item.pupil.id); }} 
+                          className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors"
+                        >
+                          {item.pupil.name} {item.pupil.surname_initial ? `${item.pupil.surname_initial}.` : ''}
+                        </button>
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 uppercase tracking-widest">{item.topics.length} Deficits</span>
+                      </div>
+                      <div className="mt-2 text-sm font-medium text-slate-600 leading-relaxed">
+                        Targeting: <span className="font-bold text-slate-800">{item.topics.join(', ')}</span>
+                      </div>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+
+            <div className="p-6 border-t border-slate-200 bg-white flex justify-between items-center">
+              <span className="text-sm font-bold text-slate-500">{xRaySelected.size} / {xRayData.affected.length} Pupils Selected</span>
+              <button 
+                onClick={executeXRayBatch}
+                disabled={xRaySelected.size === 0 || isProcessing}
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-extrabold rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2"
+              >
+                {isProcessing ? 'Generating...' : `Generate Mixed Review (${xRaySelected.size})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GLOBAL PUPIL DRAWER INJECTION */}
+      {isDrawerOpen && drawerPupilId && (
+        <PupilDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} pupilId={drawerPupilId} />
+      )}
+
     </div>
   );
 }

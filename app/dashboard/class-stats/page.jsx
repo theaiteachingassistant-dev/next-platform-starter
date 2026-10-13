@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useMemo, Suspense } from 'react';
-import { createPortal } from 'react-dom';
 import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
@@ -33,7 +32,6 @@ function ClassStatsContent() {
   const { session } = useSession();
   const { addBatchToQueue, isProcessing } = useGeneration();
 
-  const [isMounted, setIsMounted] = useState(false);
   const [activeSubject, setActiveSubject] = useState('all');
   const [pupils, setPupils] = useState([]);
   const [skills, setSkills] = useState([]);
@@ -56,11 +54,6 @@ function ClassStatsContent() {
 
   // TOP TRUMPS STATE
   const [compareIds, setCompareIds] = useState([]);
-
-  // Safety net to ensure React Portal only fires on client
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
 
   const supabase = useMemo(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -556,7 +549,7 @@ function ClassStatsContent() {
                             type="button"
                             onClick={(e) => { 
                               e.preventDefault(); 
-                              e.stopPropagation(); // Prevents the checkbox toggle from firing
+                              e.stopPropagation(); 
                               openDrawer(item.pupil.id); 
                             }} 
                             className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors text-left cursor-pointer"
@@ -589,15 +582,12 @@ function ClassStatsContent() {
         )}
       </div>
 
-      {/* REACT PORTAL: Teleports Drawer to the pure <body> tag */}
-      {isMounted && isDrawerOpen && drawerPupilId && createPortal(
-        <PupilDrawer
-          isOpen={isDrawerOpen}
-          onClose={closeDrawer}
-          pupilId={drawerPupilId}
-        />,
-        document.body
-      )}
+      {/* PERMANENTLY MOUNTED PUPIL DRAWER OVERLAY */}
+      <PupilDrawer
+        isOpen={isDrawerOpen}
+        onClose={closeDrawer}
+        pupilId={drawerPupilId || ''}
+      />
     </>
   );
 }

@@ -101,6 +101,7 @@ function ClassStatsContent() {
 
   const closeDrawer = () => {
     setIsDrawerOpen(false);
+    setDrawerPupilId(null);
   };
 
   const getWidgetData = () => {
@@ -323,7 +324,6 @@ function ClassStatsContent() {
       <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden relative">
         <button 
           onClick={(e) => {
-            e.preventDefault(); 
             e.stopPropagation();
             if (compareIds.includes(pupil.id)) setCompareIds(compareIds.filter(pid => pid !== pupil.id));
           }} 
@@ -335,7 +335,7 @@ function ClassStatsContent() {
         <div className="p-5 border-b border-slate-100 bg-slate-50">
           <button 
             type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(pupil.id); }} 
+            onClick={() => openDrawer(pupil.id)} 
             className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors cursor-pointer"
           >
             {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
@@ -457,7 +457,7 @@ function ClassStatsContent() {
                       <li key={i} className="flex justify-between items-center text-sm">
                         <button 
                           type="button"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(p.pupil.id); }} 
+                          onClick={() => openDrawer(p.pupil.id)} 
                           className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left cursor-pointer"
                         >
                           {p.pupil.name} {p.pupil.surname_initial ? `${p.pupil.surname_initial}.` : ''}
@@ -548,8 +548,7 @@ function ClassStatsContent() {
                           <button 
                             type="button"
                             onClick={(e) => { 
-                              e.preventDefault(); 
-                              e.stopPropagation(); 
+                              e.stopPropagation(); // Safe on mobile, prevents row checkbox toggle
                               openDrawer(item.pupil.id); 
                             }} 
                             className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors text-left cursor-pointer"
@@ -582,12 +581,14 @@ function ClassStatsContent() {
         )}
       </div>
 
-      {/* PERMANENTLY MOUNTED PUPIL DRAWER OVERLAY */}
-      <PupilDrawer
-        isOpen={isDrawerOpen}
-        onClose={closeDrawer}
-        pupilId={drawerPupilId || ''}
-      />
+      {/* SECURE CONDITIONAL MOUNT (Prevents DB Crash) */}
+      {isDrawerOpen && drawerPupilId && (
+        <PupilDrawer
+          isOpen={isDrawerOpen}
+          onClose={closeDrawer}
+          pupilId={drawerPupilId}
+        />
+      )}
     </>
   );
 }

@@ -13,6 +13,7 @@ export default function DashboardLayout({ children }) {
     { name: 'Morning Briefing', icon: '🌅', path: '/dashboard/morning-briefing' },
     { name: 'Command Center', icon: '🎯', path: '/dashboard' },
     { name: 'Class Analytics', icon: '📊', path: '/dashboard/class-stats' },
+    { name: 'Unified Reporting', icon: '📋', path: '/dashboard/reporting' },
     { name: 'Worksheet Bank', icon: '🗂️', path: '/dashboard/worksheet-bank' },
     { name: 'Resource Engine', icon: '⚙️', path: '/dashboard/resource-engine' },
     { name: 'Curriculum & Settings', icon: '📚', path: '/dashboard/curriculum-settings' }

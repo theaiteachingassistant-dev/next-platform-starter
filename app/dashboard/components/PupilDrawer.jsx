@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import Link from 'next/link'; // Added for seamless routing to the Reporting Hub
+import Link from 'next/link';
 
 export default function PupilDrawer({
   isDrawerOpen, closeDrawer, selectedPupil, handleProfileUpdate,
@@ -8,12 +8,13 @@ export default function PupilDrawer({
   isConfirmingDeletePupil, setIsConfirmingDeletePupil, handleDeletePupil, READING_AGES,
   supabase, userId
 }) {
+  // FIX 3: Strict Accordion Default State (Only one open at a time)
   const [expandedSections, setExpandedSections] = useState({
-    reporting: true, // New reporting panel defaults to open
-    reading: true,
-    context: true,
-    mastery: true,
-    notes: true
+    reporting: true,
+    reading: false,
+    context: false,
+    mastery: false,
+    notes: false
   });
 
   const [notes, setNotes] = useState([]);
@@ -22,7 +23,6 @@ export default function PupilDrawer({
   const [noteSearch, setNoteSearch] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
 
-  // Drawer-specific Voice Engine State
   const [drawerRecognition, setDrawerRecognition] = useState(null);
   const [isDrawerListening, setIsDrawerListening] = useState(false);
   const [drawerPendingAction, setDrawerPendingAction] = useState(null);
@@ -41,7 +41,6 @@ export default function PupilDrawer({
     }
   }, [selectedPupil, supabase]);
 
-  // Initialize Local Dictation Engine
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -55,7 +54,6 @@ export default function PupilDrawer({
     }
   }, []);
 
-  // Map the Voice Routing Logic (Using dependencies to avoid stale state)
   useEffect(() => {
     if (!drawerRecognition) return;
 
@@ -82,7 +80,6 @@ export default function PupilDrawer({
     };
   }, [drawerRecognition, noteCategory, selectedPupil, supabase, userId]);
 
-  // The 3-Second Holding Queue Timer
   useEffect(() => {
     if (drawerPendingAction) {
       const timer = setTimeout(() => {
@@ -104,8 +101,17 @@ export default function PupilDrawer({
     isDrawerListening ? drawerRecognition.stop() : drawerRecognition.start();
   };
 
+  // FIX 3: Strict Accordion Logic (Opening one forces all others to close)
   const toggleSection = (section) => {
-    const newState = { ...expandedSections, [section]: !expandedSections[section] };
+    const isCurrentlyOpen = expandedSections[section];
+    const newState = {
+      reporting: false,
+      reading: false,
+      context: false,
+      mastery: false,
+      notes: false,
+      [section]: !isCurrentlyOpen
+    };
     setExpandedSections(newState);
     localStorage.setItem('ks2_drawer_prefs', JSON.stringify(newState));
   };
@@ -205,7 +211,8 @@ export default function PupilDrawer({
     <div className={`fixed inset-0 z-50 transition-opacity duration-300 ${isDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={closeDrawer}></div>
       
-      <div className={`absolute top-0 right-0 h-full w-[75vw] max-w-none bg-slate-50 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+      {/* FIX 1: Dynamic Viewport Sizing (95vw on mobile, capped at 600px on desktop) & min-h-0 */}
+      <div className={`absolute top-0 right-0 h-full w-[95vw] md:w-[500px] lg:w-[600px] max-w-none bg-slate-50 shadow-2xl flex flex-col min-h-0 transform transition-transform duration-300 ease-in-out ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full'}`}>
         
         <div className="bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center shadow-sm z-10 shrink-0">
           <div>
@@ -219,10 +226,10 @@ export default function PupilDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start content-start">
+        {/* FIX 2: min-h-0 added to the scrolling container to prevent iOS Safari overlap bug, grid removed for clean vertical stack */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 flex flex-col gap-4">
           
-          {/* 0. REPORTING QUICK-LINKS (NEW) */}
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm lg:col-span-2">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
             <button onClick={() => toggleSection('reporting')} className="w-full px-5 py-3.5 bg-purple-50/50 hover:bg-purple-50 flex justify-between items-center transition-colors">
               <div className="flex items-center gap-2 font-extrabold text-purple-900">
                 <span>📋</span> AI Reporting Actions
@@ -230,7 +237,7 @@ export default function PupilDrawer({
               <span className={`transform transition-transform text-purple-400 text-xs ${expandedSections.reporting ? 'rotate-180' : ''}`}>▼</span>
             </button>
             {expandedSections.reporting && (
-              <div className="p-4 border-t border-purple-100 bg-white grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="p-4 border-t border-purple-100 bg-white flex flex-col gap-3">
                  <Link href={`/dashboard/reporting/parents-evening?pupilId=${selectedPupil.id}`} className="w-full py-3 px-4 bg-white border-2 border-purple-100 text-purple-700 rounded-xl text-sm font-bold hover:border-purple-300 hover:bg-purple-50 transition-all flex flex-col gap-1 items-start group">
                    <span className="flex items-center gap-2 text-base"><span>👥</span> Parents' Evening Snapshot</span>
                    <span className="text-xs font-semibold text-purple-400 group-hover:text-purple-600 transition-colors">Open Workspace →</span>
@@ -457,7 +464,6 @@ export default function PupilDrawer({
           
         </div>
 
-        {/* 2. THE 3-SECOND DRAWER TOAST HOLDING QUEUE */}
         {(drawerPendingAction || drawerToast) && (
           <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 bg-slate-900 text-white px-6 py-3.5 rounded-full shadow-2xl flex items-center gap-4 z-50 transition-all border border-slate-700">
             <span className="font-bold text-sm">{drawerPendingAction ? drawerPendingAction.message : drawerToast}</span>

@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
+import Link from 'next/link'; // Added for seamless routing to the Reporting Hub
 
 export default function PupilDrawer({
   isDrawerOpen, closeDrawer, selectedPupil, handleProfileUpdate,
@@ -8,6 +9,7 @@ export default function PupilDrawer({
   supabase, userId
 }) {
   const [expandedSections, setExpandedSections] = useState({
+    reporting: true, // New reporting panel defaults to open
     reading: true,
     context: true,
     mastery: true,
@@ -217,9 +219,34 @@ export default function PupilDrawer({
           </button>
         </div>
 
-        {/* 1. UPGRADED TO MULTI-COLUMN GRID */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-4 items-start content-start">
           
+          {/* 0. REPORTING QUICK-LINKS (NEW) */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm lg:col-span-2">
+            <button onClick={() => toggleSection('reporting')} className="w-full px-5 py-3.5 bg-purple-50/50 hover:bg-purple-50 flex justify-between items-center transition-colors">
+              <div className="flex items-center gap-2 font-extrabold text-purple-900">
+                <span>📋</span> AI Reporting Actions
+              </div>
+              <span className={`transform transition-transform text-purple-400 text-xs ${expandedSections.reporting ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+            {expandedSections.reporting && (
+              <div className="p-4 border-t border-purple-100 bg-white grid grid-cols-1 md:grid-cols-3 gap-3">
+                 <Link href={`/dashboard/reporting/parents-evening?pupilId=${selectedPupil.id}`} className="w-full py-3 px-4 bg-white border-2 border-purple-100 text-purple-700 rounded-xl text-sm font-bold hover:border-purple-300 hover:bg-purple-50 transition-all flex flex-col gap-1 items-start group">
+                   <span className="flex items-center gap-2 text-base"><span>👥</span> Parents' Evening Snapshot</span>
+                   <span className="text-xs font-semibold text-purple-400 group-hover:text-purple-600 transition-colors">Open Workspace →</span>
+                 </Link>
+                 <Link href={`/dashboard/reporting/end-of-year?pupilId=${selectedPupil.id}`} className="w-full py-3 px-4 bg-white border-2 border-emerald-100 text-emerald-700 rounded-xl text-sm font-bold hover:border-emerald-300 hover:bg-emerald-50 transition-all flex flex-col gap-1 items-start group">
+                   <span className="flex items-center gap-2 text-base"><span>🎓</span> End of Year Report</span>
+                   <span className="text-xs font-semibold text-emerald-400 group-hover:text-emerald-600 transition-colors">Open Workspace →</span>
+                 </Link>
+                 <Link href={`/dashboard/reporting/send-plans?pupilId=${selectedPupil.id}`} className="w-full py-3 px-4 bg-white border-2 border-amber-100 text-amber-700 rounded-xl text-sm font-bold hover:border-amber-300 hover:bg-amber-50 transition-all flex flex-col gap-1 items-start group">
+                   <span className="flex items-center gap-2 text-base"><span>🎯</span> SEND SMART Plan</span>
+                   <span className="text-xs font-semibold text-amber-400 group-hover:text-amber-600 transition-colors">Open Workspace →</span>
+                 </Link>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
             <button onClick={() => toggleSection('reading')} className="w-full px-5 py-3.5 bg-indigo-50/50 hover:bg-indigo-50 flex justify-between items-center transition-colors">
               <div className="flex items-center gap-2 font-extrabold text-indigo-900">

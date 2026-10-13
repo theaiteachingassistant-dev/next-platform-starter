@@ -52,6 +52,7 @@ function ClassStatsContent() {
   const [xRayData, setXRayData] = useState(null);
   const [xRaySelected, setXRaySelected] = useState(new Set());
 
+  // TOP TRUMPS STATE
   const [compareIds, setCompareIds] = useState([]);
 
   const supabase = useMemo(() => {
@@ -96,6 +97,10 @@ function ClassStatsContent() {
   const openDrawer = (id) => {
     setDrawerPupilId(id);
     setIsDrawerOpen(true);
+  };
+
+  const closeDrawer = () => {
+    setIsDrawerOpen(false);
   };
 
   const getWidgetData = () => {
@@ -316,15 +321,22 @@ function ClassStatsContent() {
 
     return (
       <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden relative">
-        <button onClick={(e) => {
-          e.preventDefault(); e.stopPropagation();
-          if (compareIds.includes(pupil.id)) setCompareIds(compareIds.filter(pid => pid !== pupil.id));
-        }} className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors z-10">✕</button>
+        <button 
+          onClick={(e) => {
+            e.preventDefault(); 
+            e.stopPropagation();
+            if (compareIds.includes(pupil.id)) setCompareIds(compareIds.filter(pid => pid !== pupil.id));
+          }} 
+          className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors z-10"
+        >
+          ✕
+        </button>
         
         <div className="p-5 border-b border-slate-100 bg-slate-50">
           <button 
+            type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(pupil.id); }} 
-            className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors"
+            className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors cursor-pointer"
           >
             {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
           </button>
@@ -346,7 +358,6 @@ function ClassStatsContent() {
             </div>
           </div>
 
-          {/* RE-INJECTED SUBJECT BREAKDOWN BARS */}
           <div className="space-y-3 pt-3 border-t border-slate-100">
             {SUBJECTS.filter(s => s.key !== 'all').map(sub => {
               const subSkills = skills.filter(s => s.subject === sub.key).map(s => s.id);
@@ -445,8 +456,9 @@ function ClassStatsContent() {
                     <ul className="space-y-2">{widgetData.invisiblePupils.map((p, i) => (
                       <li key={i} className="flex justify-between items-center text-sm">
                         <button 
+                          type="button"
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(p.pupil.id); }} 
-                          className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left"
+                          className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left cursor-pointer"
                         >
                           {p.pupil.name} {p.pupil.surname_initial ? `${p.pupil.surname_initial}.` : ''}
                         </button>
@@ -455,7 +467,6 @@ function ClassStatsContent() {
                     ))}</ul>
                   )}
                 </div>
-                {/* Visual Spacing padding for other widgets removed to stay concise, they work cleanly with existing CSS */}
               </div>
             )}
           </div>
@@ -501,6 +512,7 @@ function ClassStatsContent() {
 
         </main>
 
+        {/* X-RAY DRILLDOWN MODAL */}
         {isXRayOpen && xRayData && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4 z-50">
             <div className="bg-white rounded-2xl w-full max-w-2xl flex flex-col max-h-[90vh] shadow-2xl overflow-hidden border border-slate-200">
@@ -520,7 +532,10 @@ function ClassStatsContent() {
                    <p className="text-slate-500 italic text-center py-4">No pupils found for this slice.</p>
                 ) : (
                   xRayData.affected.map((item) => (
-                    <label key={item.pupil.id} className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-all cursor-pointer ${xRaySelected.has(item.pupil.id) ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                    <div 
+                      key={item.pupil.id} 
+                      className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-all ${xRaySelected.has(item.pupil.id) ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                    >
                       <input 
                         type="checkbox" 
                         checked={xRaySelected.has(item.pupil.id)} 
@@ -532,7 +547,7 @@ function ClassStatsContent() {
                           <button 
                             type="button"
                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(item.pupil.id); }} 
-                            className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors"
+                            className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors text-left cursor-pointer"
                           >
                             {item.pupil.name} {item.pupil.surname_initial ? `${item.pupil.surname_initial}.` : ''}
                           </button>
@@ -542,7 +557,7 @@ function ClassStatsContent() {
                           Targeting: <span className="font-bold text-slate-800">{item.topics.join(', ')}</span>
                         </div>
                       </div>
-                    </label>
+                    </div>
                   ))
                 )}
               </div>
@@ -562,13 +577,14 @@ function ClassStatsContent() {
         )}
       </div>
 
-      {isDrawerOpen && drawerPupilId && (
-        <div className="fixed inset-0 z-[100] pointer-events-none">
-          <div className="pointer-events-auto h-full">
-            <PupilDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} pupilId={drawerPupilId} />
-          </div>
-        </div>
-      )}
+      {/* PERMANENTLY MOUNTED PUPIL DRAWER OVERLAY */}
+      <div className="relative z-[9999]">
+        <PupilDrawer
+          isOpen={isDrawerOpen}
+          onClose={closeDrawer}
+          pupilId={drawerPupilId}
+        />
+      </div>
     </>
   );
 }

@@ -42,8 +42,8 @@ export default function ReportingHubPage() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8 flex flex-col items-center justify-center">
-        <div className="w-full max-w-5xl">
+      <main className="flex-1 overflow-auto bg-slate-50">
+        <div className="w-full max-w-5xl mx-auto py-8 px-4 md:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {reportingModules.map((module) => (
               <Link 

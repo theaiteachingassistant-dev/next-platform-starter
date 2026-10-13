@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
@@ -32,6 +33,7 @@ function ClassStatsContent() {
   const { session } = useSession();
   const { addBatchToQueue, isProcessing } = useGeneration();
 
+  const [isMounted, setIsMounted] = useState(false);
   const [activeSubject, setActiveSubject] = useState('all');
   const [pupils, setPupils] = useState([]);
   const [skills, setSkills] = useState([]);
@@ -54,6 +56,11 @@ function ClassStatsContent() {
 
   // TOP TRUMPS STATE
   const [compareIds, setCompareIds] = useState([]);
+
+  // Safety net to ensure React Portal only fires on client
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const supabase = useMemo(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -534,19 +541,24 @@ function ClassStatsContent() {
                   xRayData.affected.map((item) => (
                     <div 
                       key={item.pupil.id} 
-                      className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-all ${xRaySelected.has(item.pupil.id) ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                      onClick={() => toggleXRaySelected(item.pupil.id)}
+                      className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-all cursor-pointer ${xRaySelected.has(item.pupil.id) ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
                     >
                       <input 
                         type="checkbox" 
                         checked={xRaySelected.has(item.pupil.id)} 
-                        onChange={() => toggleXRaySelected(item.pupil.id)}
-                        className="mt-1.5 w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                        readOnly
+                        className="mt-1.5 w-5 h-5 rounded border-slate-300 text-indigo-600 pointer-events-none"
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <button 
                             type="button"
-                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(item.pupil.id); }} 
+                            onClick={(e) => { 
+                              e.preventDefault(); 
+                              e.stopPropagation(); // Prevents the checkbox toggle from firing
+                              openDrawer(item.pupil.id); 
+                            }} 
                             className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors text-left cursor-pointer"
                           >
                             {item.pupil.name} {item.pupil.surname_initial ? `${item.pupil.surname_initial}.` : ''}
@@ -577,14 +589,15 @@ function ClassStatsContent() {
         )}
       </div>
 
-      {/* PERMANENTLY MOUNTED PUPIL DRAWER OVERLAY */}
-      <div className="relative z-[9999]">
+      {/* REACT PORTAL: Teleports Drawer to the pure <body> tag */}
+      {isMounted && isDrawerOpen && drawerPupilId && createPortal(
         <PupilDrawer
           isOpen={isDrawerOpen}
           onClose={closeDrawer}
           pupilId={drawerPupilId}
-        />
-      </div>
+        />,
+        document.body
+      )}
     </>
   );
 }

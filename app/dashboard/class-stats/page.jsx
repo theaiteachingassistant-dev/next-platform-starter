@@ -94,7 +94,13 @@ function ClassStatsContent() {
     setIsLoading(false);
   };
 
-  const openDrawer = (id) => {
+  // UPGRADED openDrawer: Intercepts event, kills bubbling, manages z-index standoff
+  const openDrawer = (e, id) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setIsXRayOpen(false); // Closes X-Ray so it doesn't trap the drawer underneath
     setDrawerPupilId(id);
     setIsDrawerOpen(true);
   };
@@ -327,7 +333,7 @@ function ClassStatsContent() {
             e.stopPropagation();
             if (compareIds.includes(pupil.id)) setCompareIds(compareIds.filter(pid => pid !== pupil.id));
           }} 
-          className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors z-10"
+          className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors z-30"
         >
           ✕
         </button>
@@ -335,8 +341,8 @@ function ClassStatsContent() {
         <div className="p-5 border-b border-slate-100 bg-slate-50">
           <button 
             type="button"
-            onClick={() => openDrawer(pupil.id)} 
-            className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors cursor-pointer"
+            onClick={(e) => openDrawer(e, pupil.id)} 
+            className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors cursor-pointer relative z-20"
           >
             {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
           </button>
@@ -457,8 +463,8 @@ function ClassStatsContent() {
                       <li key={i} className="flex justify-between items-center text-sm">
                         <button 
                           type="button"
-                          onClick={() => openDrawer(p.pupil.id)} 
-                          className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left cursor-pointer"
+                          onClick={(e) => openDrawer(e, p.pupil.id)} 
+                          className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left cursor-pointer relative z-20"
                         >
                           {p.pupil.name} {p.pupil.surname_initial ? `${p.pupil.surname_initial}.` : ''}
                         </button>
@@ -545,13 +551,11 @@ function ClassStatsContent() {
                       />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
+                          {/* UPGRADED: Button clearly separated with relative z-index & propagation stopped */}
                           <button 
                             type="button"
-                            onClick={(e) => { 
-                              e.stopPropagation(); // Safe on mobile, prevents row checkbox toggle
-                              openDrawer(item.pupil.id); 
-                            }} 
-                            className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors text-left cursor-pointer"
+                            onClick={(e) => openDrawer(e, item.pupil.id)} 
+                            className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors text-left cursor-pointer relative z-20"
                           >
                             {item.pupil.name} {item.pupil.surname_initial ? `${item.pupil.surname_initial}.` : ''}
                           </button>

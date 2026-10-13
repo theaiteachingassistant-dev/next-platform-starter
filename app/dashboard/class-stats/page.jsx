@@ -139,12 +139,10 @@ function ClassStatsContent() {
 
   const widgetData = useMemo(getWidgetData, [activeSubject, skills, progress, pupils]);
 
-  // --- MATH ENGINE: CLASS AVERAGES VS DEMOGRAPHICS ---
   const getChartData = (demographicFilter) => {
     const activeSkills = activeSubject === 'all' ? skills : skills.filter(s => s.subject === activeSubject);
     const activeSkillIds = activeSkills.map(s => s.id);
     
-    // 1. Calculate Whole Class Baseline
     const classProg = progress.filter(p => activeSkillIds.includes(p.skill_id) && p.status !== 'blank');
     const classTotal = classProg.length;
     const classAvg = {
@@ -153,7 +151,6 @@ function ClassStatsContent() {
       red: classTotal ? Math.round((classProg.filter(p => p.status === 'red').length / classTotal) * 100) : 0,
     };
 
-    // 2. Calculate Demographic Specifics
     let filteredPupils = pupils;
     if (demographicFilter === 'send') filteredPupils = pupils.filter(p => p.is_send);
     if (demographicFilter === 'eal') filteredPupils = pupils.filter(p => p.is_eal);
@@ -186,7 +183,6 @@ function ClassStatsContent() {
     return { data: chartData, total: demoTotal };
   };
 
-  // --- DRILLDOWN X-RAY TRIGGERS ---
   const handleSliceClick = (entry, demographicFilter, demographicLabel) => {
     const targetStatus = entry.status;
     const activeSkills = activeSubject === 'all' ? skills : skills.filter(s => s.subject === activeSubject);
@@ -199,7 +195,6 @@ function ClassStatsContent() {
     if (demographicFilter === 'boys') filteredPupils = pupils.filter(p => p.gender === 'Boy');
     if (demographicFilter === 'girls') filteredPupils = pupils.filter(p => p.gender === 'Girl');
 
-    // Gather exact pupils and their specific topics for transparency
     const affected = filteredPupils.map(p => {
       const pProg = progress.filter(pr => pr.pupil_id === p.id && activeSkillIds.includes(pr.skill_id) && pr.status === targetStatus);
       if (pProg.length === 0) return null;
@@ -225,7 +220,6 @@ function ClassStatsContent() {
     setXRaySelected(newSet);
   };
 
-  // --- GENERATION (OPTION A: TARGETED MIXED REVIEW) ---
   const executeXRayBatch = () => {
     if (xRaySelected.size === 0 || isProcessing || !xRayData) return;
     
@@ -234,7 +228,6 @@ function ClassStatsContent() {
       const mappedTopics = {};
       const targetSubjects = activeSubject === 'all' ? SUBJECTS.filter(s => s.key !== 'all').map(s => s.key) : [activeSubject];
 
-      // Build Option A payload: Targeting their exact deficits
       targetSubjects.forEach(sub => {
         const subSkills = skills.filter(s => s.subject === sub).map(s => s.id);
         const specificProg = progress.filter(pr => pr.pupil_id === pupilId && pr.status === xRayData.status && subSkills.includes(pr.skill_id));
@@ -288,7 +281,6 @@ function ClassStatsContent() {
           )}
         </div>
 
-        {/* DEMOGRAPHIC VS CLASS AVERAGE LEGEND */}
         {total > 0 && (
           <div className="mt-auto space-y-2 border-t border-slate-100 pt-3">
             {data.map(d => (
@@ -324,13 +316,16 @@ function ClassStatsContent() {
 
     return (
       <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden relative">
-        <button onClick={() => {
+        <button onClick={(e) => {
+          e.preventDefault(); e.stopPropagation();
           if (compareIds.includes(pupil.id)) setCompareIds(compareIds.filter(pid => pid !== pupil.id));
         }} className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors z-10">✕</button>
         
         <div className="p-5 border-b border-slate-100 bg-slate-50">
-          {/* CLICKABLE PUPIL NAME */}
-          <button onClick={() => openDrawer(pupil.id)} className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors">
+          <button 
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(pupil.id); }} 
+            className="font-extrabold text-lg text-indigo-700 hover:text-indigo-900 hover:underline truncate pr-6 text-left w-full transition-colors"
+          >
             {pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}
           </button>
           <div className="flex gap-2 mt-2">
@@ -349,6 +344,34 @@ function ClassStatsContent() {
               {o > 0 && <div className="bg-amber-400" style={{ width: `${o}%` }}></div>}
               {r > 0 && <div className="bg-red-500" style={{ width: `${r}%` }}></div>}
             </div>
+          </div>
+
+          {/* RE-INJECTED SUBJECT BREAKDOWN BARS */}
+          <div className="space-y-3 pt-3 border-t border-slate-100">
+            {SUBJECTS.filter(s => s.key !== 'all').map(sub => {
+              const subSkills = skills.filter(s => s.subject === sub.key).map(s => s.id);
+              const subP = progress.filter(p => p.pupil_id === pupilId && subSkills.includes(p.skill_id) && p.status !== 'blank');
+              const subT = subP.length;
+              if (subT === 0) return null;
+              
+              const subG = Math.round((subP.filter(p => p.status === 'green').length / subT) * 100);
+              const subO = Math.round((subP.filter(p => p.status === 'orange').length / subT) * 100);
+              const subR = Math.round((subP.filter(p => p.status === 'red').length / subT) * 100);
+
+              return (
+                <div key={sub.key}>
+                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wide mb-1">
+                    <span className="text-slate-500 flex items-center gap-1"><span>{sub.icon}</span> {sub.label}</span>
+                    <span className="text-emerald-600">{subG}%</span>
+                  </div>
+                  <div className="flex h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    {subG > 0 && <div className="bg-emerald-500" style={{ width: `${subG}%` }}></div>}
+                    {subO > 0 && <div className="bg-amber-400" style={{ width: `${subO}%` }}></div>}
+                    {subR > 0 && <div className="bg-red-500" style={{ width: `${subR}%` }}></div>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -369,184 +392,184 @@ function ClassStatsContent() {
   const sortedPupils = [...pupils].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 relative min-h-0 w-full overflow-hidden">
-      
-      <header className="bg-white border-b border-slate-200 px-6 py-4 shadow-sm z-10 shrink-0">
-        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4">
-          <div>
-            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight leading-tight">Class Analytics Hub</h1>
-            <p className="text-sm text-slate-500 font-medium">Live demographic and curriculum intelligence.</p>
-          </div>
-        </div>
-
-        <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-          {SUBJECTS.map((sub) => (
-            <button
-              key={sub.key}
-              onClick={() => setActiveSubject(sub.key)}
-              className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-bold transition-all ${
-                activeSubject === sub.key 
-                  ? 'bg-white shadow-sm text-indigo-700 border border-slate-200' 
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <span>{sub.icon}</span>
-              <span className="whitespace-nowrap">{sub.label}</span>
-            </button>
-          ))}
-        </div>
-      </header>
-
-      <main className="flex-1 overflow-auto p-4 md:p-6 bg-slate-50 flex flex-col gap-6">
+    <>
+      <div className="flex flex-col h-full bg-slate-50 relative min-h-0 w-full overflow-hidden">
         
-        {/* EXPERT HEADLINE WIDGETS */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden shrink-0">
-          <button onClick={() => setIsWidgetsOpen(!isWidgetsOpen)} className="w-full px-5 py-3.5 bg-slate-800 hover:bg-slate-900 flex justify-between items-center transition-colors">
-            <div className="flex items-center gap-2 font-extrabold text-white tracking-wide"><span>⚡</span> Tactical Intelligence Briefing</div>
-            <span className={`transform transition-transform text-slate-400 text-xs ${isWidgetsOpen ? 'rotate-180' : ''}`}>▼</span>
-          </button>
-          {isWidgetsOpen && (
-            <div className="p-5 border-t border-slate-200 bg-slate-50/50 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-              <div className="bg-white border border-red-200 rounded-lg p-4 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-red-700 flex items-center gap-1.5 mb-3"><span>🚨</span> Curriculum Bottlenecks</h3>
-                {widgetData.bottlenecks.length === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No red topics.</p> : (
-                  <ul className="space-y-2">{widgetData.bottlenecks.map((b, i) => (<li key={i} className="flex justify-between items-center text-sm"><span className="font-semibold text-slate-700 truncate pr-2">{b.skill.skill_name}</span><span className="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{b.count} pupils</span></li>))}</ul>
-                )}
+        <header className="bg-white border-b border-slate-200 px-6 py-4 shadow-sm z-10 shrink-0">
+          <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4">
+            <div>
+              <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight leading-tight">Class Analytics Hub</h1>
+              <p className="text-sm text-slate-500 font-medium">Live demographic and curriculum intelligence.</p>
+            </div>
+          </div>
+
+          <div className="flex bg-slate-100 p-1.5 rounded-xl border border-slate-200 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+            {SUBJECTS.map((sub) => (
+              <button
+                key={sub.key}
+                onClick={() => setActiveSubject(sub.key)}
+                className={`flex-1 min-w-[100px] flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-bold transition-all ${
+                  activeSubject === sub.key 
+                    ? 'bg-white shadow-sm text-indigo-700 border border-slate-200' 
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+                }`}
+              >
+                <span>{sub.icon}</span>
+                <span className="whitespace-nowrap">{sub.label}</span>
+              </button>
+            ))}
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-auto p-4 md:p-6 bg-slate-50 flex flex-col gap-6 pb-32">
+          
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden shrink-0">
+            <button onClick={() => setIsWidgetsOpen(!isWidgetsOpen)} className="w-full px-5 py-3.5 bg-slate-800 hover:bg-slate-900 flex justify-between items-center transition-colors">
+              <div className="flex items-center gap-2 font-extrabold text-white tracking-wide"><span>⚡</span> Tactical Intelligence Briefing</div>
+              <span className={`transform transition-transform text-slate-400 text-xs ${isWidgetsOpen ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+            {isWidgetsOpen && (
+              <div className="p-5 border-t border-slate-200 bg-slate-50/50 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="bg-white border border-red-200 rounded-lg p-4 shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-red-500"></div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-red-700 flex items-center gap-1.5 mb-3"><span>🚨</span> Curriculum Bottlenecks</h3>
+                  {widgetData.bottlenecks.length === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No red topics.</p> : (
+                    <ul className="space-y-2">{widgetData.bottlenecks.map((b, i) => (<li key={i} className="flex justify-between items-center text-sm"><span className="font-semibold text-slate-700 truncate pr-2">{b.skill.skill_name}</span><span className="font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">{b.count} pupils</span></li>))}</ul>
+                  )}
+                </div>
+                
+                <div className="bg-white border border-slate-300 rounded-lg p-4 shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-slate-500"></div>
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5 mb-3"><span>👻</span> The Invisible Child</h3>
+                  {widgetData.totalActiveSkills === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No skills available.</p> : (
+                    <ul className="space-y-2">{widgetData.invisiblePupils.map((p, i) => (
+                      <li key={i} className="flex justify-between items-center text-sm">
+                        <button 
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(p.pupil.id); }} 
+                          className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left"
+                        >
+                          {p.pupil.name} {p.pupil.surname_initial ? `${p.pupil.surname_initial}.` : ''}
+                        </button>
+                        <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{p.blankPct}% Blank</span>
+                      </li>
+                    ))}</ul>
+                  )}
+                </div>
+                {/* Visual Spacing padding for other widgets removed to stay concise, they work cleanly with existing CSS */}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-800 mb-4 flex items-center gap-2"><span>📊</span> Demographic vs Class Averages</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+              {renderChartCard('chart1', 'Primary Demographic')}
+              {renderChartCard('chart2', 'Secondary Demographic')}
+              {renderChartCard('chart3', 'Comparison A')}
+              {renderChartCard('chart4', 'Comparison B')}
+            </div>
+          </div>
+
+          <div className="border-t-4 border-indigo-600 pt-6 min-h-[400px]">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+              <div>
+                <h2 className="text-lg font-extrabold text-slate-800 flex items-center gap-2"><span>⚔️</span> Top Trumps Comparison</h2>
+                <p className="text-sm font-semibold text-slate-500">Select up to 4 pupils for side-by-side progression analysis.</p>
               </div>
               
-              <div className="bg-white border border-slate-300 rounded-lg p-4 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 left-0 w-1 h-full bg-slate-500"></div>
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5 mb-3"><span>👻</span> The Invisible Child</h3>
-                {widgetData.totalActiveSkills === 0 ? <p className="text-sm font-semibold text-slate-400 italic">No skills available.</p> : (
-                  <ul className="space-y-2">{widgetData.invisiblePupils.map((p, i) => (
-                    <li key={i} className="flex justify-between items-center text-sm">
-                      {/* CLICKABLE PUPIL NAME */}
-                      <button onClick={() => openDrawer(p.pupil.id)} className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline truncate pr-2 text-left">
-                        {p.pupil.name} {p.pupil.surname_initial ? `${p.pupil.surname_initial}.` : ''}
-                      </button>
-                      <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">{p.blankPct}% Blank</span>
-                    </li>
-                  ))}</ul>
+              <select 
+                onChange={(e) => {
+                  if (e.target.value && !compareIds.includes(e.target.value) && compareIds.length < 4) {
+                    setCompareIds([...compareIds, e.target.value]);
+                    e.target.value = "";
+                  }
+                }}
+                disabled={compareIds.length >= 4}
+                className="p-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white min-w-[200px]"
+              >
+                <option value="">+ Add Pupil to Compare</option>
+                {sortedPupils.filter(p => !compareIds.includes(p.id)).map(p => (
+                  <option key={p.id} value={p.id}>{p.name} {p.surname_initial ? `${p.surname_initial}.` : ''}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              {compareIds.map(renderCompareCard)}
+            </div>
+          </div>
+
+        </main>
+
+        {isXRayOpen && xRayData && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4 z-50">
+            <div className="bg-white rounded-2xl w-full max-w-2xl flex flex-col max-h-[90vh] shadow-2xl overflow-hidden border border-slate-200">
+              <div className="p-6 border-b border-slate-200 flex justify-between items-start" style={{ borderTop: `6px solid ${xRayData.color}` }}>
+                <div>
+                  <h2 className="text-2xl font-black text-slate-800">X-Ray: {xRayData.demographicLabel}</h2>
+                  <p className="text-sm font-bold mt-1 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: xRayData.color}}></span>
+                    Current Status: <span style={{color: xRayData.color}}>{xRayData.statusName} ({xRayData.affected.length} Pupils)</span>
+                  </p>
+                </div>
+                <button onClick={() => setIsXRayOpen(false)} className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full font-bold transition-colors">✕</button>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 bg-slate-50 space-y-3">
+                {xRayData.affected.length === 0 ? (
+                   <p className="text-slate-500 italic text-center py-4">No pupils found for this slice.</p>
+                ) : (
+                  xRayData.affected.map((item) => (
+                    <label key={item.pupil.id} className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-all cursor-pointer ${xRaySelected.has(item.pupil.id) ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                      <input 
+                        type="checkbox" 
+                        checked={xRaySelected.has(item.pupil.id)} 
+                        onChange={() => toggleXRaySelected(item.pupil.id)}
+                        className="mt-1.5 w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <button 
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(item.pupil.id); }} 
+                            className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors"
+                          >
+                            {item.pupil.name} {item.pupil.surname_initial ? `${item.pupil.surname_initial}.` : ''}
+                          </button>
+                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 uppercase tracking-widest">{item.topics.length} Deficits</span>
+                        </div>
+                        <div className="mt-2 text-sm font-medium text-slate-600 leading-relaxed">
+                          Targeting: <span className="font-bold text-slate-800">{item.topics.join(', ')}</span>
+                        </div>
+                      </div>
+                    </label>
+                  ))
                 )}
               </div>
-              {/* Other Widgets Hidden for Brevity (Velocity etc) */}
-            </div>
-          )}
-        </div>
 
-        {/* DEMOGRAPHIC CHARTS WITH CLASS AVERAGES */}
-        <div>
-          <h2 className="text-lg font-extrabold text-slate-800 mb-4 flex items-center gap-2"><span>📊</span> Demographic vs Class Averages</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-            {renderChartCard('chart1', 'Primary Demographic')}
-            {renderChartCard('chart2', 'Secondary Demographic')}
-            {renderChartCard('chart3', 'Comparison A')}
-            {renderChartCard('chart4', 'Comparison B')}
-          </div>
-        </div>
-
-        {/* TOP TRUMPS ENGINE */}
-        <div className="border-t-4 border-indigo-600 pt-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <div>
-              <h2 className="text-lg font-extrabold text-slate-800 flex items-center gap-2"><span>⚔️</span> Top Trumps Comparison</h2>
-              <p className="text-sm font-semibold text-slate-500">Select up to 4 pupils for side-by-side progression analysis.</p>
-            </div>
-            
-            <select 
-              onChange={(e) => {
-                if (e.target.value && !compareIds.includes(e.target.value) && compareIds.length < 4) {
-                  setCompareIds([...compareIds, e.target.value]);
-                  e.target.value = "";
-                }
-              }}
-              disabled={compareIds.length >= 4}
-              className="p-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white min-w-[200px]"
-            >
-              <option value="">+ Add Pupil to Compare</option>
-              {sortedPupils.filter(p => !compareIds.includes(p.id)).map(p => (
-                <option key={p.id} value={p.id}>{p.name} {p.surname_initial ? `${p.surname_initial}.` : ''}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-            {compareIds.map(renderCompareCard)}
-          </div>
-        </div>
-
-      </main>
-
-      {/* --- THE X-RAY DRILLDOWN MODAL --- */}
-      {isXRayOpen && xRayData && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex justify-center items-center p-4 z-50">
-          <div className="bg-white rounded-2xl w-full max-w-2xl flex flex-col max-h-[90vh] shadow-2xl overflow-hidden border border-slate-200">
-            
-            <div className="p-6 border-b border-slate-200 flex justify-between items-start" style={{ borderTop: `6px solid ${xRayData.color}` }}>
-              <div>
-                <h2 className="text-2xl font-black text-slate-800">X-Ray: {xRayData.demographicLabel}</h2>
-                <p className="text-sm font-bold mt-1 flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: xRayData.color}}></span>
-                  Current Status: <span style={{color: xRayData.color}}>{xRayData.statusName} ({xRayData.affected.length} Pupils)</span>
-                </p>
+              <div className="p-6 border-t border-slate-200 bg-white flex justify-between items-center">
+                <span className="text-sm font-bold text-slate-500">{xRaySelected.size} / {xRayData.affected.length} Pupils Selected</span>
+                <button 
+                  onClick={executeXRayBatch}
+                  disabled={xRaySelected.size === 0 || isProcessing}
+                  className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-extrabold rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2"
+                >
+                  {isProcessing ? 'Generating...' : `Generate Mixed Review (${xRaySelected.size})`}
+                </button>
               </div>
-              <button onClick={() => setIsXRayOpen(false)} className="w-8 h-8 flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full font-bold transition-colors">✕</button>
             </div>
+          </div>
+        )}
+      </div>
 
-            <div className="p-6 overflow-y-auto flex-1 bg-slate-50 space-y-3">
-              {xRayData.affected.length === 0 ? (
-                 <p className="text-slate-500 italic text-center py-4">No pupils found for this slice.</p>
-              ) : (
-                xRayData.affected.map((item) => (
-                  <label key={item.pupil.id} className={`flex items-start gap-4 p-4 rounded-xl border-2 transition-all cursor-pointer ${xRaySelected.has(item.pupil.id) ? 'border-indigo-500 bg-indigo-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-                    <input 
-                      type="checkbox" 
-                      checked={xRaySelected.has(item.pupil.id)} 
-                      onChange={() => toggleXRaySelected(item.pupil.id)}
-                      className="mt-1.5 w-5 h-5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-600 cursor-pointer"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        {/* CLICKABLE PUPIL NAME INSIDE MODAL */}
-                        <button 
-                          type="button"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDrawer(item.pupil.id); }} 
-                          className="font-extrabold text-lg text-slate-800 hover:text-indigo-600 hover:underline transition-colors"
-                        >
-                          {item.pupil.name} {item.pupil.surname_initial ? `${item.pupil.surname_initial}.` : ''}
-                        </button>
-                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 uppercase tracking-widest">{item.topics.length} Deficits</span>
-                      </div>
-                      <div className="mt-2 text-sm font-medium text-slate-600 leading-relaxed">
-                        Targeting: <span className="font-bold text-slate-800">{item.topics.join(', ')}</span>
-                      </div>
-                    </div>
-                  </label>
-                ))
-              )}
-            </div>
-
-            <div className="p-6 border-t border-slate-200 bg-white flex justify-between items-center">
-              <span className="text-sm font-bold text-slate-500">{xRaySelected.size} / {xRayData.affected.length} Pupils Selected</span>
-              <button 
-                onClick={executeXRayBatch}
-                disabled={xRaySelected.size === 0 || isProcessing}
-                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-extrabold rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2"
-              >
-                {isProcessing ? 'Generating...' : `Generate Mixed Review (${xRaySelected.size})`}
-              </button>
-            </div>
+      {isDrawerOpen && drawerPupilId && (
+        <div className="fixed inset-0 z-[100] pointer-events-none">
+          <div className="pointer-events-auto h-full">
+            <PupilDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} pupilId={drawerPupilId} />
           </div>
         </div>
       )}
-
-      {/* GLOBAL PUPIL DRAWER INJECTION */}
-      {isDrawerOpen && drawerPupilId && (
-        <PupilDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} pupilId={drawerPupilId} />
-      )}
-
-    </div>
+    </>
   );
 }
 

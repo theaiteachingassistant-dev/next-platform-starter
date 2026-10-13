@@ -1,18 +1,34 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useSession } from '@clerk/nextjs';
+import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+
+// Helper to format dates to UK standards
+const formatDate = (dateString) => {
+  const options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+  return new Date(dateString).toLocaleDateString('en-GB', options);
+};
+
+// Routing logic for the new database enums
+const getTypeConfig = (type) => {
+  switch (type) {
+    case 'parents_evening': return { label: "Parents' Evening", color: 'bg-purple-100 text-purple-700 border-purple-200' };
+    case 'end_of_year': return { label: 'End of Year', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+    case 'send_plan': return { label: 'SEND Plan', color: 'bg-amber-100 text-amber-700 border-amber-200' };
+    default: return { label: 'Worksheet Pack', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' };
+  }
+};
 
 export default function WorksheetBankPage() {
+  const { userId } = useAuth();
   const { session } = useSession();
-  const router = useRouter();
-
-  const [worksheets, setWorksheets] = useState([]);
+  
+  const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [viewMode, setViewMode] = useState('batch'); // 'batch' or 'pupil'
-  const [searchQuery, setSearchQuery] = useState('');
+  const [error, setError] = useState(null); // Strict error surfacing protocol
+  const [docFilter, setDocFilter] = useState('all');
 
   const supabase = useMemo(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -36,187 +52,141 @@ export default function WorksheetBankPage() {
   }, [session]);
 
   useEffect(() => {
-    if (supabase) fetchWorksheets();
-  }, [supabase]);
+    if (userId && supabase) fetchDocuments();
+  }, [userId, supabase]);
 
-  const fetchWorksheets = async () => {
+  const fetchDocuments = async () => {
     setIsLoading(true);
-    // Fetch all worksheets and join with the pupils table to get the names
-    const { data, error } = await supabase
-      .from('generated_worksheets')
-      .select('*, pupils(name, surname_initial)')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error("Fetch error:", error);
-    } else {
-      setWorksheets(data || []);
+    setError(null);
+    try {
+      const { data, error: fetchError } = await supabase
+        .from('generated_worksheets')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+        
+      if (fetchError) throw fetchError;
+      
+      setDocuments(data || []);
+    } catch (err) {
+      setError(err.message || 'Failed to load documents from the database.');
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
-  // Group the raw rows by batch_id for the Batch View
-  const groupedBatches = useMemo(() => {
-    const groups = {};
-    worksheets.forEach(sheet => {
-      if (!groups[sheet.batch_id]) {
-        groups[sheet.batch_id] = {
-          batch_id: sheet.batch_id,
-          created_at: sheet.created_at,
-          expires_at: sheet.expires_at,
-          pupils: []
-        };
-      }
-      groups[sheet.batch_id].pupils.push(sheet.pupils?.name || 'Unknown');
-    });
-    return Object.values(groups).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  }, [worksheets]);
-
-  // Filter individual worksheets for the Pupil Search View
-  const filteredPupils = useMemo(() => {
-    if (!searchQuery.trim()) return worksheets;
-    return worksheets.filter(sheet => 
-      sheet.pupils?.name?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [worksheets, searchQuery]);
-
-  // Expiration Logic: Returns true if less than 24 hours remain
-  const isExpiringSoon = (expiresAt) => {
-    const hoursRemaining = (new Date(expiresAt).getTime() - new Date().getTime()) / (1000 * 60 * 60);
-    return hoursRemaining < 24 && hoursRemaining > 0;
-  };
-
-  const formatDate = (dateString) => {
-    const options = { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-    return new Date(dateString).toLocaleDateString('en-GB', options);
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center h-full w-full bg-slate-50 text-slate-500 font-bold">
-        Loading Worksheet Bank...
-      </div>
-    );
-  }
+  // Filter pipeline handling legacy worksheets and new reports
+  const displayedDocs = docFilter === 'all' 
+    ? documents 
+    : documents.filter(doc => doc.type === docFilter || (docFilter === 'worksheet' && !doc.type));
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 relative min-h-0 w-full overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-50 min-h-screen relative">
       
-      {/* HEADER & WARNING BANNER */}
-      <header className="bg-white border-b border-slate-200 shadow-sm z-10 shrink-0">
-        <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-center">
-          <p className="text-amber-800 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2">
-            ⚠️ Automated Data Retention Policy Active
-          </p>
-          <p className="text-amber-700 text-xs font-medium">
-            To preserve system bandwidth, all documents are permanently deleted 7 days after generation. Please print or save as PDF before expiration.
-          </p>
-        </div>
-        <div className="px-6 py-4 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+      <header className="bg-white border-b border-slate-200 px-6 py-4 shadow-sm shrink-0 z-10">
+        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4">
           <div>
-            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight leading-tight">Worksheet Bank</h1>
-            <p className="text-sm text-slate-500 font-medium">Access and print recently generated interventions.</p>
+            <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight leading-tight">7-Day Document Bank</h1>
+            <p className="text-sm text-slate-500 font-medium">Access your generated worksheets and official reports.</p>
           </div>
-
-          {/* VIEW TOGGLES */}
-          <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 shrink-0">
-            <button 
-              onClick={() => setViewMode('batch')}
-              className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${viewMode === 'batch' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              Batch View
-            </button>
-            <button 
-              onClick={() => setViewMode('pupil')}
-              className={`px-4 py-1.5 text-sm font-bold rounded-md transition-all ${viewMode === 'pupil' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
-            >
-              Pupil Search
-            </button>
-          </div>
+        </div>
+        
+        {/* Prominent 7-Day Purge Warning */}
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3">
+          <span className="text-amber-500 text-lg">⚠️</span>
+          <p className="text-sm font-bold text-amber-800">
+            Data Retention Protocol: <span className="font-medium text-amber-700">All documents are permanently purged after 7 days to protect API bandwidth. Please download or print essential files.</span>
+          </p>
         </div>
       </header>
 
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 overflow-auto p-6 bg-slate-50">
+      <main className="flex-1 overflow-auto p-4 md:p-6 flex flex-col gap-6 pb-20">
         
-        {viewMode === 'batch' ? (
-          <div className="space-y-4 max-w-5xl mx-auto">
-            {groupedBatches.length === 0 ? (
-              <div className="text-center p-12 bg-white rounded-xl border border-slate-200 shadow-sm">
-                <p className="text-slate-500 font-medium">No batches generated in the last 7 days.</p>
-              </div>
-            ) : (
-              groupedBatches.map(batch => {
-                const expiring = isExpiringSoon(batch.expires_at);
-                return (
-                  <div key={batch.batch_id} className={`bg-white border rounded-xl p-5 shadow-sm transition-all hover:shadow-md flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 ${expiring ? 'border-red-300 bg-red-50/30' : 'border-slate-200'}`}>
-                    <div>
-                      <div className="flex items-center gap-3 mb-1">
-                        <h3 className="font-extrabold text-slate-800 text-lg">Class Sweep ({batch.pupils.length} Pupils)</h3>
-                        {expiring && (
-                          <span className="bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider animate-pulse">
-                            Expires &lt; 24h
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 font-bold mb-2">Generated: {formatDate(batch.created_at)}</p>
-                      <p className="text-xs text-slate-400 font-medium line-clamp-1">
-                        Includes: {batch.pupils.join(', ')}
-                      </p>
-                    </div>
-                    <button 
-                      onClick={() => router.push(`/dashboard/worksheet-bank/${batch.batch_id}`)}
-                      className={`shrink-0 px-6 py-2.5 rounded-lg text-sm font-bold transition-colors shadow-sm ${expiring ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}
-                    >
-                      Open & Print Batch
-                    </button>
-                  </div>
-                );
-              })
-            )}
+        {/* Defensive Error Surfacing */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex justify-between items-center shadow-sm">
+            <div className="flex items-center gap-3">
+              <span className="text-red-500 text-lg">🚨</span>
+              <p className="text-sm font-bold text-red-800">Connection Error: <span className="font-medium">{error}</span></p>
+            </div>
+            <button onClick={fetchDocuments} className="text-xs font-bold bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded transition-colors">Retry</button>
+          </div>
+        )}
+
+        {/* Global Filter Navigation */}
+        <div className="flex justify-between items-center bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+          <div className="flex overflow-x-auto w-full" style={{ scrollbarWidth: 'none' }}>
+            {[
+              { id: 'all', label: 'All Documents', icon: '📂' },
+              { id: 'worksheet', label: 'Worksheets', icon: '📝' },
+              { id: 'parents_evening', label: "Parents' Evening", icon: '👥' },
+              { id: 'end_of_year', label: 'End of Year', icon: '🎓' },
+              { id: 'send_plan', label: 'SEND Plans', icon: '🎯' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setDocFilter(tab.id)}
+                className={`flex-1 min-w-[140px] flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${
+                  docFilter === tab.id 
+                    ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-sm' 
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100 border border-transparent'
+                }`}
+              >
+                <span>{tab.icon}</span>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Grid Engine */}
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <div className="w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            <p className="text-slate-500 font-bold text-sm tracking-wider uppercase">Loading Secure Bank...</p>
+          </div>
+        ) : displayedDocs.length === 0 ? (
+          <div className="bg-white border border-slate-200 rounded-xl p-12 text-center shadow-sm">
+            <div className="text-4xl mb-3">🗄️</div>
+            <h3 className="text-lg font-extrabold text-slate-800">No Documents Found</h3>
+            <p className="text-slate-500 font-medium text-sm mt-1">
+              {docFilter === 'all' 
+                ? "Your bank is currently empty. Generated files will appear here." 
+                : "No active documents match this specific filter category."}
+            </p>
           </div>
         ) : (
-          <div className="max-w-5xl mx-auto">
-            <div className="mb-6">
-              <input 
-                type="text" 
-                placeholder="Search by pupil name..." 
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full max-w-md p-3 bg-white border border-slate-300 rounded-xl text-sm font-bold shadow-sm focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {displayedDocs.map(doc => {
+              const typeConfig = getTypeConfig(doc.type || 'worksheet');
+              return (
+                <div key={doc.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col gap-4 hover:shadow-md transition-all">
+                  <div className="flex justify-between items-start gap-2">
+                    <span className={`text-[10px] uppercase tracking-wider font-black px-2.5 py-1 rounded border ${typeConfig.color}`}>
+                      {typeConfig.label}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded border border-slate-200 text-center">
+                      {formatDate(doc.created_at)}
+                    </span>
+                  </div>
+                  
+                  <div className="flex-1">
+                    <h4 className="font-extrabold text-slate-800 truncate mb-1">
+                      {doc.payload?.title || 'Generated Document'}
+                    </h4>
+                    <p className="text-xs font-semibold text-slate-500 line-clamp-2">
+                      {doc.payload?.description || 'Click view to open this document in the compiler.'}
+                    </p>
+                  </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredPupils.length === 0 ? (
-                <div className="col-span-full text-center p-12 bg-white rounded-xl border border-slate-200 shadow-sm">
-                  <p className="text-slate-500 font-medium">No individual worksheets found.</p>
+                  <div className="flex gap-2 pt-4 border-t border-slate-100">
+                    <Link href={`/dashboard/worksheet-bank/${doc.batch_id || doc.id}`} className="flex-1 text-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-black py-2.5 rounded-lg transition-colors border border-indigo-200 tracking-wide uppercase">
+                      View & Export
+                    </Link>
+                  </div>
                 </div>
-              ) : (
-                filteredPupils.map(sheet => {
-                  const expiring = isExpiringSoon(sheet.expires_at);
-                  return (
-                    <div key={sheet.id} className={`bg-white border rounded-xl p-4 shadow-sm flex flex-col justify-between ${expiring ? 'border-red-300 bg-red-50/30' : 'border-slate-200 hover:border-indigo-300 transition-colors'}`}>
-                      <div className="mb-4">
-                        <div className="flex justify-between items-start mb-2">
-                          <h3 className="font-extrabold text-slate-800 text-lg">{sheet.pupils?.name}</h3>
-                          {expiring && <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-[10px] font-black uppercase">Urgent</span>}
-                        </div>
-                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">
-                          {formatDate(sheet.created_at)}
-                        </p>
-                      </div>
-                      <button 
-                        onClick={() => router.push(`/dashboard/worksheet-bank/${sheet.batch_id}`)}
-                        className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors border border-slate-200"
-                      >
-                        View Document
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+              )
+            })}
           </div>
         )}
       </main>

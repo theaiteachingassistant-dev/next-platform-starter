@@ -5,7 +5,7 @@ import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import ExecutionModal from '../components/ExecutionModal';
-import { useGeneration } from '../../../context/GenerationContext';
+import { useGeneration } from '../../context/GenerationContext';
 
 const SUBJECTS = [
   { key: 'all', label: 'All Subjects', icon: '🌍' },
@@ -40,15 +40,16 @@ function ClassStatsContent() {
   
   const [isWidgetsOpen, setIsWidgetsOpen] = useState(true);
   
-  // Independent filters for the 4 chart cards
   const [chartFilters, setChartFilters] = useState({
     chart1: 'all', chart2: 'send', chart3: 'pp', chart4: 'eal'
   });
 
-  // Drilldown Modal State
   const [isExecutionModalOpen, setIsExecutionModalOpen] = useState(false);
   const [selectedForSweep, setSelectedForSweep] = useState(new Set());
   const [drilldownTitle, setDrilldownTitle] = useState('');
+
+  // TOP TRUMPS STATE
+  const [compareIds, setCompareIds] = useState([]);
 
   const supabase = useMemo(() => {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -130,7 +131,6 @@ function ClassStatsContent() {
 
   const widgetData = useMemo(getWidgetData, [activeSubject, skills, progress, pupils]);
 
-  // --- CHART MATH ENGINE ---
   const getChartData = (demographicFilter) => {
     let filteredPupils = pupils;
     if (demographicFilter === 'send') filteredPupils = pupils.filter(p => p.is_send);
@@ -158,7 +158,6 @@ function ClassStatsContent() {
     return { data: chartData, total: greenCount + orangeCount + redCount };
   };
 
-  // --- DRILLDOWN EXECUTION ---
   const handleSliceClick = (entry, demographicLabel) => {
     const targetStatus = entry.status;
     const poolPupilIds = entry.pupilIds;
@@ -166,7 +165,6 @@ function ClassStatsContent() {
     const activeSkills = activeSubject === 'all' ? skills : skills.filter(s => s.subject === activeSubject);
     const activeSkillIds = activeSkills.map(s => s.id);
     
-    // Find all pupils who have AT LEAST ONE topic with this status in the current subject scope
     const affectedPupils = pupils.filter(p => {
       if (!poolPupilIds.includes(p.id)) return false;
       return progress.some(pr => pr.pupil_id === p.id && activeSkillIds.includes(pr.skill_id) && pr.status === targetStatus);
@@ -219,6 +217,14 @@ function ClassStatsContent() {
     setIsExecutionModalOpen(false);
   };
 
+  const toggleComparePupil = (id) => {
+    if (compareIds.includes(id)) {
+      setCompareIds(compareIds.filter(pid => pid !== id));
+    } else {
+      if (compareIds.length < 4) setCompareIds([...compareIds, id]);
+    }
+  };
+
   const renderChartCard = (chartKey, title) => {
     const filter = chartFilters[chartKey];
     const { data, total } = getChartData(filter);
@@ -243,36 +249,98 @@ function ClassStatsContent() {
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Tooltip 
-                  formatter={(value) => [`${value} Topics`, 'Count']}
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  itemStyle={{ fontWeight: 'bold' }}
-                />
-                <Pie
-                  data={data}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={2}
-                  dataKey="value"
-                  onClick={(entry) => handleSliceClick(entry, filterLabel)}
-                  className="cursor-pointer focus:outline-none"
-                >
-                  {data.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} className="hover:opacity-80 transition-opacity outline-none" />
-                  ))}
+                <Tooltip formatter={(value) => [`${value} Topics`, 'Count']} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} itemStyle={{ fontWeight: 'bold' }} />
+                <Pie data={data} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value" onClick={(entry) => handleSliceClick(entry, filterLabel)} className="cursor-pointer focus:outline-none">
+                  {data.map((entry, index) => (<Cell key={`cell-${index}`} fill={entry.color} className="hover:opacity-80 transition-opacity outline-none" />))}
                 </Pie>
               </PieChart>
             </ResponsiveContainer>
           )}
-          
           {total > 0 && (
              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                <span className="text-2xl font-black text-slate-800">{total}</span>
                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Topics</span>
              </div>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCompareCard = (pupilId) => {
+    const pupil = pupils.find(p => p.id === pupilId);
+    if (!pupil) return null;
+
+    const activeSkills = activeSubject === 'all' ? skills : skills.filter(s => s.subject === activeSubject);
+    const activeSkillIds = activeSkills.map(s => s.id);
+    const pProg = progress.filter(p => p.pupil_id === pupilId && activeSkillIds.includes(p.skill_id) && p.status !== 'blank');
+    
+    const total = pProg.length;
+    const g = total === 0 ? 0 : Math.round((pProg.filter(p => p.status === 'green').length / total) * 100);
+    const o = total === 0 ? 0 : Math.round((pProg.filter(p => p.status === 'orange').length / total) * 100);
+    const r = total === 0 ? 0 : Math.round((pProg.filter(p => p.status === 'red').length / total) * 100);
+
+    const getTierColor = (tier) => {
+      if (tier === 'Higher') return 'bg-purple-100 text-purple-700 border-purple-200';
+      if (tier === 'Expected') return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+      return 'bg-amber-100 text-amber-700 border-amber-200';
+    };
+
+    return (
+      <div key={pupil.id} className="bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden relative">
+        <button onClick={() => toggleComparePupil(pupil.id)} className="absolute top-3 right-3 w-6 h-6 flex items-center justify-center bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-full text-xs font-bold transition-colors">✕</button>
+        
+        <div className="p-5 border-b border-slate-100 bg-slate-50">
+          <h3 className="font-extrabold text-lg text-slate-800 truncate pr-6">{pupil.name} {pupil.surname_initial ? `${pupil.surname_initial}.` : ''}</h3>
+          <div className="flex gap-2 mt-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-white border border-slate-200 text-slate-500 px-2 py-1 rounded">
+              RA: {pupil.reading_age || 'N/A'}
+            </span>
+            <span className={`text-[10px] font-bold uppercase tracking-wider border px-2 py-1 rounded ${getTierColor(pupil.reading_tier)}`}>
+              {pupil.reading_tier || 'WTS'}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-5 flex-1 flex flex-col gap-5">
+          <div>
+            <div className="flex justify-between items-center text-xs font-bold mb-1.5">
+              <span className="text-slate-600">Global Mastery</span>
+              <span className="text-emerald-600">{g}%</span>
+            </div>
+            <div className="flex h-3 bg-slate-100 rounded-full overflow-hidden shadow-inner">
+              {g > 0 && <div className="bg-emerald-500" style={{ width: `${g}%` }}></div>}
+              {o > 0 && <div className="bg-amber-400" style={{ width: `${o}%` }}></div>}
+              {r > 0 && <div className="bg-red-500" style={{ width: `${r}%` }}></div>}
+            </div>
+          </div>
+
+          <div className="space-y-3 pt-3 border-t border-slate-100">
+            {SUBJECTS.filter(s => s.key !== 'all').map(sub => {
+              const subSkills = skills.filter(s => s.subject === sub.key).map(s => s.id);
+              const subP = progress.filter(p => p.pupil_id === pupilId && subSkills.includes(p.skill_id) && p.status !== 'blank');
+              const subT = subP.length;
+              if (subT === 0) return null;
+              
+              const subG = Math.round((subP.filter(p => p.status === 'green').length / subT) * 100);
+              const subO = Math.round((subP.filter(p => p.status === 'orange').length / subT) * 100);
+              const subR = Math.round((subP.filter(p => p.status === 'red').length / subT) * 100);
+
+              return (
+                <div key={sub.key}>
+                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wide mb-1">
+                    <span className="text-slate-500 flex items-center gap-1"><span>{sub.icon}</span> {sub.label}</span>
+                    <span className="text-emerald-600">{subG}%</span>
+                  </div>
+                  <div className="flex h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    {subG > 0 && <div className="bg-emerald-500" style={{ width: `${subG}%` }}></div>}
+                    {subO > 0 && <div className="bg-amber-400" style={{ width: `${subO}%` }}></div>}
+                    {subR > 0 && <div className="bg-red-500" style={{ width: `${subR}%` }}></div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     );
@@ -288,6 +356,8 @@ function ClassStatsContent() {
       </div>
     );
   }
+
+  const sortedPupils = [...pupils].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   return (
     <div className="flex flex-col h-full bg-slate-50 relative min-h-0 w-full overflow-hidden">
@@ -322,16 +392,10 @@ function ClassStatsContent() {
         
         {/* EXPERT HEADLINE WIDGETS */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden shrink-0">
-          <button 
-            onClick={() => setIsWidgetsOpen(!isWidgetsOpen)} 
-            className="w-full px-5 py-3.5 bg-slate-800 hover:bg-slate-900 flex justify-between items-center transition-colors"
-          >
-            <div className="flex items-center gap-2 font-extrabold text-white tracking-wide">
-              <span>⚡</span> Tactical Intelligence Briefing
-            </div>
+          <button onClick={() => setIsWidgetsOpen(!isWidgetsOpen)} className="w-full px-5 py-3.5 bg-slate-800 hover:bg-slate-900 flex justify-between items-center transition-colors">
+            <div className="flex items-center gap-2 font-extrabold text-white tracking-wide"><span>⚡</span> Tactical Intelligence Briefing</div>
             <span className={`transform transition-transform text-slate-400 text-xs ${isWidgetsOpen ? 'rotate-180' : ''}`}>▼</span>
           </button>
-          
           {isWidgetsOpen && (
             <div className="p-5 border-t border-slate-200 bg-slate-50/50 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <div className="bg-white border border-red-200 rounded-lg p-4 shadow-sm relative overflow-hidden group hover:border-red-300 transition-colors">
@@ -359,8 +423,8 @@ function ClassStatsContent() {
                 <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
                 <h3 className="text-xs font-black uppercase tracking-wider text-emerald-700 flex items-center gap-1.5 mb-3"><span>🚀</span> Distance Travelled</h3>
                 <div className="flex flex-col gap-2">
-                  <div className="flex justify-between items-end border-b border-slate-100 pb-2"><span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Last 14 Days</span><span className="text-xl font-black text-emerald-600 leading-none">+{widgetData.recentGreens14} <span className="text-xs font-bold text-emerald-600/50">Topics Mastered</span></span></div>
-                  <div className="flex justify-between items-end pt-1"><span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Last 30 Days</span><span className="text-lg font-black text-slate-700 leading-none">+{widgetData.recentGreens30} <span className="text-xs font-bold text-slate-400">Topics Mastered</span></span></div>
+                  <div className="flex justify-between items-end border-b border-slate-100 pb-2"><span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Last 14 Days</span><span className="text-xl font-black text-emerald-600 leading-none">+{widgetData.recentGreens14} <span className="text-xs font-bold text-emerald-600/50">Mastered</span></span></div>
+                  <div className="flex justify-between items-end pt-1"><span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Last 30 Days</span><span className="text-lg font-black text-slate-700 leading-none">+{widgetData.recentGreens30} <span className="text-xs font-bold text-slate-400">Mastered</span></span></div>
                 </div>
               </div>
             </div>
@@ -369,9 +433,7 @@ function ClassStatsContent() {
 
         {/* INTERACTIVE PIE CHARTS */}
         <div>
-          <h2 className="text-lg font-extrabold text-slate-800 mb-4 flex items-center gap-2">
-            <span>📊</span> Demographic Distribution
-          </h2>
+          <h2 className="text-lg font-extrabold text-slate-800 mb-4 flex items-center gap-2"><span>📊</span> Demographic Distribution</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             {renderChartCard('chart1', 'Primary View')}
             {renderChartCard('chart2', 'Comparison A')}
@@ -380,15 +442,46 @@ function ClassStatsContent() {
           </div>
         </div>
 
-        {/* Placeholder for Step 5 */}
-        <div className="flex-1 min-h-[300px] border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-100/50 flex flex-col justify-center items-center">
-          <h2 className="text-lg font-extrabold text-slate-400 mb-2">Step 5: Top Trumps Engine</h2>
-          <p className="text-sm font-semibold text-slate-400">The side-by-side pupil comparison cards will render here next.</p>
+        {/* TOP TRUMPS ENGINE */}
+        <div className="border-t-4 border-indigo-600 pt-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+            <div>
+              <h2 className="text-lg font-extrabold text-slate-800 flex items-center gap-2"><span>⚔️</span> Top Trumps Comparison</h2>
+              <p className="text-sm font-semibold text-slate-500">Select up to 4 pupils for side-by-side progression analysis.</p>
+            </div>
+            
+            <select 
+              onChange={(e) => {
+                if (e.target.value) {
+                  toggleComparePupil(e.target.value);
+                  e.target.value = "";
+                }
+              }}
+              disabled={compareIds.length >= 4}
+              className="p-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-indigo-500 min-w-[200px]"
+            >
+              <option value="">+ Add Pupil to Compare</option>
+              {sortedPupils.filter(p => !compareIds.includes(p.id)).map(p => (
+                <option key={p.id} value={p.id}>{p.name} {p.surname_initial ? `${p.surname_initial}.` : ''}</option>
+              ))}
+            </select>
+          </div>
+
+          {compareIds.length === 0 ? (
+            <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 flex flex-col justify-center items-center">
+              <span className="text-4xl mb-3">🎴</span>
+              <h3 className="font-extrabold text-slate-400">No Pupils Selected</h3>
+              <p className="text-sm font-semibold text-slate-400">Use the dropdown above to add pupils to the comparison engine.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+              {compareIds.map(renderCompareCard)}
+            </div>
+          )}
         </div>
 
       </main>
 
-      {/* DRILLDOWN BATCH GENERATION MODAL */}
       <ExecutionModal 
         isOpen={isExecutionModalOpen} 
         onClose={() => setIsExecutionModalOpen(false)} 

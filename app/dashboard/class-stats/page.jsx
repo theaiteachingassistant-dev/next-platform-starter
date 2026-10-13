@@ -5,7 +5,7 @@ import { useAuth, useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import ExecutionModal from '../components/ExecutionModal';
-import { useGeneration } from '../context/GenerationContext';
+import { useGeneration } from '../../../context/GenerationContext';
 
 const SUBJECTS = [
   { key: 'all', label: 'All Subjects', icon: '🌍' },
